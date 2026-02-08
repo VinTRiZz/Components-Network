@@ -1,6 +1,0 @@
-[submodule "depends/Components-Logger"]
-	path = depends/Components-Logger
-	url = git@github.com:VinTRiZz/Components-Logger.git
-[submodule "depends/Components-Encryption"]
-	path = depends/Components-Encryption
-	url = git@github.com:VinTRiZz/Components-Encryption.git
