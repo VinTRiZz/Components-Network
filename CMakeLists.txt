@@ -9,3 +9,4 @@ else()
 endif()
 
 COMPONENTS_LINK_COMPONENT(Network Logger)
+COMPONENTS_LINK_COMPONENT(Network Encryption)
