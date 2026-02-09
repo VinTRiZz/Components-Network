@@ -112,9 +112,9 @@ void ConnectionSession::handleRequests() {
             return;
         }
 
-        HttpPacket request;
+        Packet request;
         request.target  = m_request.target().to_string();
-        request.data    = beast::buffers_to_string(m_request.body().data());
+        request.body    = std::move(beast::buffers_to_string(m_request.body().data()));
 
         if (m_request.count(http::field::content_type)) {
             auto bodyType = m_request.at(http::field::content_type).to_string();
@@ -123,20 +123,20 @@ void ConnectionSession::handleRequests() {
 
         LOG_INFO(this, "Request:", m_request.method_string(), request.target, "(", request.toString(request.bodyType), ")");
 
-        HttpPacket::MethodType targetMethodType;
+        MethodType targetMethodType;
         switch  (m_request.method())
         {
-        case http::verb::get:       targetMethodType = HttpPacket::MethodType::Get; break;
-        case http::verb::put:       targetMethodType = HttpPacket::MethodType::Put; break;
-        case http::verb::post:      targetMethodType = HttpPacket::MethodType::Post; break;
-        case http::verb::delete_:   targetMethodType = HttpPacket::MethodType::Delete; break;
+        case http::verb::get:       targetMethodType = MethodType::Get; break;
+        case http::verb::put:       targetMethodType = MethodType::Put; break;
+        case http::verb::post:      targetMethodType = MethodType::Post; break;
+        case http::verb::delete_:   targetMethodType = MethodType::Delete; break;
 
         default: // От варнингов
             break;
         }
 
         if (auto targetProcessor = m_processors.find(targetMethodType); targetProcessor != m_processors.end()) {
-            targetProcessor->second(request);
+            targetProcessor->second(std::move(request));
         } else {
             LOG_WARNING(this, "Unknown method:", m_request.method_string());
             sendErrorResponse(http::status::method_not_allowed, "Invalid method");
@@ -151,7 +151,7 @@ void ConnectionSession::handleRequests() {
     checkDeadline();
 }
 
-void ConnectionSession::sendResponse(const HttpPacket &pkt, http::verb method) {
+void ConnectionSession::sendResponse(const Packet &pkt, http::verb method) {
 
     LOG_INFO(this, "Sending response with status", pkt.statusCode);
     if (pkt.isFile) {
@@ -171,7 +171,7 @@ void ConnectionSession::sendResponse(const HttpPacket &pkt, http::verb method) {
         std::get<http::response<http::file_body> >(m_response).prepare_payload();
     } else {
         m_response = http::response<http::dynamic_body>();
-        beast::ostream(std::get<http::response<http::dynamic_body> >(m_response).body()) << pkt.data;
+        beast::ostream(std::get<http::response<http::dynamic_body> >(m_response).body()) << pkt.body;
         std::get<http::response<http::dynamic_body> >(m_response)
                 .content_length(std::get<http::response<http::dynamic_body> >(m_response).body().size());
         std::get<http::response<http::dynamic_body> >(m_response).prepare_payload();
@@ -207,8 +207,8 @@ void ConnectionSession::sendResponse(const HttpPacket &pkt, http::verb method) {
 void ConnectionSession::sendErrorResponse(http::status status, const std::string &errorString)
 {
     m_responseErrorPacket = {};
-    m_responseErrorPacket.bodyType = HttpPacket::Undefined;
-    m_responseErrorPacket.data = errorString;
+    m_responseErrorPacket.bodyType = Packet::Undefined;
+    m_responseErrorPacket.body = errorString;
     m_responseErrorPacket.statusCode = static_cast<unsigned int>(status);
     sendResponse(m_responseErrorPacket, m_request.method());
 }

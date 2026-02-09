@@ -1,57 +1,41 @@
 #pragma once
 
-#include <boost/beast/core.hpp>
-#include <boost/beast/http.hpp>
-#include <boost/beast/version.hpp>
-#include <boost/asio/connect.hpp>
-#include <boost/asio/ip/tcp.hpp>
-#include <boost/asio/steady_timer.hpp>
-#include <iostream>
-#include <string>
-#include <thread>
-#include <mutex>
-#include <atomic>
+#include <memory>
 
-#include <Components/Network/CommonHTTP.h>
+#include "httptypes.hpp"
 
-namespace HTTP {
+namespace boost::asio
+{
+class io_context;
+}
 
-class Client {
+namespace HTTP
+{
+
+class Client
+{
 public:
-    explicit Client(asio::io_context& ioc);
-
+    Client(boost::asio::io_context& ioc, bool isSecure = false, bool verifyCertificate = true);
+    Client(bool isSecure = false, bool verifyCertificate = true);
     ~Client();
 
-    bool setHost(const std::string& host, uint16_t port);
-    void setTimeout(int seconds);
+    void setClientName(const std::string& clientName);
+    void setMaxFileSize(uint32_t fileSizeByte);
 
-    void setMethod(http::verb method);
-    void setTarget(const std::string& target);
-    void setBody(const std::string& body);
-    void setHeader(const std::string& key, const std::string& value);
-    void setContentType(const std::string& type);
-    void setUserAgent(const std::string& agent);
-    void setAuthorization(const std::string& token);
+    void setHost(const std::string& host, const uint16_t port = 80);
+    Packet request(MethodType method, Packet &&pkt);
+    Packet request(MethodType method, const Packet &pkt);
 
-    bool sendData(HTTPPacket&& packet);
-    const HTTPPacket& getLastResponse() const;
-
-    void setErrorCallback(ErrorCallback callback);
-
-    void close();
+    bool downloadFile(const std::string& target, const std::string& saveFilePath);
+    bool uploadFile(const std::string& target, const std::string& filePath);
 
 private:
-    ServerInfo m_serverInfo;
-    HTTPPacket m_currentRequest;
-    HTTPPacket m_lastResponse;
+    struct Impl;
+    std::shared_ptr<Impl> d;
 
-    tcp::resolver m_resolver;
-    beast::tcp_stream m_sendStream;
-    asio::steady_timer m_sendTimer;
-
-    ErrorCallback m_errorCallback;
-    std::mutex m_mutex;
+    bool connectToHost();
+    bool isConnected();
+    bool disconnectFromHost();
 };
 
-} // namespace HTTP
-
+}

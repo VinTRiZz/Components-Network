@@ -1,193 +1,156 @@
 #include "server.hpp"
 
-namespace HTTP {
+#include <Components/Logger/Logger.h>
 
-ThreadPool::ThreadPool(size_t threads) : stop_(false) {
-    for(size_t i = 0; i < threads; ++i) {
-        workers_.emplace_back([this] {
-            while(true) {
-                std::function<void()> task;
-                {
-                    std::unique_lock<std::mutex> lock(queue_mutex_);
-                    condition_.wait(lock, [this] {
-                        return stop_ || !tasks_.empty();
-                    });
+#include "connectionsession.hpp"
 
-                    if(stop_ && tasks_.empty()) return;
+#include <boost/beast/http.hpp>
+#include <boost/asio/ssl.hpp>
 
-                    task = std::move(tasks_.front());
-                    tasks_.pop();
-                }
-                task();
-            }
-        });
-    }
-}
+namespace HTTP
+{
 
-ThreadPool::~ThreadPool() {
+struct Server::Impl
+{
+    std::string m_serverName;
+
+    boost::asio::io_context m_ioc;
+    boost::asio::ip::tcp::socket m_socket;
+    boost::asio::ip::tcp::acceptor m_acceptor;
+
+    std::shared_ptr<boost::asio::ssl::context> ctx;
+
+    Impl(const std::string& srv,
+         const boost::asio::ip::address& addr,
+         const uint16_t port,
+         int threadCount,
+         const SecureConnectionParameters& securePars) :
+        m_serverName{srv}, m_ioc {threadCount}, m_socket {m_ioc}, m_acceptor {m_ioc, {addr, port}}
     {
-        std::unique_lock<std::mutex> lock(queue_mutex_);
-        stop_ = true;
-    }
-    condition_.notify_all();
-
-    for(std::thread &worker: workers_)
-        worker.join();
-}
-
-
-
-Session::Session(tcp::socket socket, ThreadPool &pool, RequestHandler handler)
-    : socket_(std::move(socket))
-    , pool_(pool)
-    , request_handler_(std::move(handler))
-{}
-
-void Session::start() {
-    read_request();
-}
-
-void Session::read_request() {
-    auto self = shared_from_this();
-
-    http::async_read(socket_, buffer_, request_,
-                     [self](beast::error_code ec, std::size_t bytes_transferred) {
-        if(!ec) {
-            self->process_request();
+        if (!securePars.certFile.empty()) {
+            ctx = std::make_unique<boost::asio::ssl::context>(boost::asio::ssl::context::tlsv13_server);
+            ctx->use_certificate_chain_file(securePars.certFile);
+            ctx->use_private_key_file(securePars.privKeyFile, boost::asio::ssl::context::pem);
         }
-    });
-}
-
-void Session::process_request() {
-    // В этом месте можно добавлять проверки полей входящих пакетов
-    // перед обработкой. Например:
-    // 1. Проверка обязательных заголовков
-    // 2. Валидация метода
-    // 3. Проверка размера тела
-    // 4. Аутентификация по заголовкам
-
-    // Преобразование запроса в HTTPPacket
-    HTTPPacket packet;
-    packet.method = request_.method();
-    packet.target = std::string(request_.target());
-    packet.version = request_.version();
-    packet.body = beast::buffers_to_string(request_.body().data());
-
-    for(const auto& field : request_) {
-        packet.setHeader(std::string(field.name_string()),
-                         std::string(field.value()));
     }
 
-    // Передача в пул потоков для обработки
-    pool_.enqueue([this, packet = std::move(packet)]() mutable {
-        request_handler_(std::move(packet),
-                         [this](HTTPPacket&& response_packet) {
-            send_response(std::move(response_packet));
+    void handleConnections(std::unordered_map<std::string, std::map<MethodType, TargetProcessor> >& processors) {
+        m_acceptor.async_accept(m_socket,
+            [&](beast::error_code ec) {
+                if(ec) {
+                    LOG_WARNING("Error accepting connection:", ec.message());
+                    handleConnections(processors);
+                    return;
+                }
+                auto pConnection = std::make_shared<ConnectionSession>(m_serverName, std::move(m_socket), ctx);
+                auto handleMethod = [this, pConnection, &processors](Packet&& pkt, MethodType methType) {
+                    auto targetProcessor = processors.find(pkt.target);
+                    if (targetProcessor == processors.end()) {
+                        LOG_WARNING("No processors set for method:", toString(methType), "and target:", pkt.target);
+                        pConnection->sendErrorResponse(http::status::not_implemented, "501 - Not implemented");
+                        return;
+                    }
+
+                    auto targetMethodProcessor = targetProcessor->second.find(methType);
+                    if (targetMethodProcessor == targetProcessor->second.end()) {
+                        LOG_WARNING("Skipped packet of method:", toString(methType), "and target:", pkt.target);
+                        pConnection->sendErrorResponse(http::status::not_found, "404 - Not found");
+                        return;
+                    }
+
+                    targetMethodProcessor->second(std::move(pkt),
+                        [pConnection](Packet&& pkt){
+                        pConnection->sendResponse(pkt, http::verb::get);
+                    });
+                };
+
+                auto addMethod = [pConnection, &handleMethod](MethodType methType){
+                    pConnection->m_processors[methType] = [methType, handleMethod](Packet&& pkt){
+                        return handleMethod(std::move(pkt), methType);
+                    };
+                };
+
+                addMethod(Get);
+                addMethod(Put);
+                addMethod(Post);
+                addMethod(Delete);
+
+                pConnection->handleRequests();
+                handleConnections(processors);
         });
-    });
-}
-
-void Session::send_response(HTTPPacket &&packet) {
-    auto self = shared_from_this();
-
-    // Создание HTTP ответа
-    http::response<http::string_body> res{
-        static_cast<http::status>(std::stoi(packet.getHeader("status").empty() ? packet.getHeader("status") : "200")),
-                packet.version
-    };
-
-    res.body() = packet.body;
-    res.prepare_payload();
-
-    // Установка заголовков
-    for(const auto& [key, value] : packet.headers) {
-        if (key != "status") {
-            res.set(key, value);
-        }
     }
+};
 
-    res.set(http::field::server, "Boost.Beast HTTP Server");
+Server::Server(const std::string &serverName,
+               const SecureConnectionParameters& securePars) :
+    m_serverName {serverName},
+    m_httpsParameters{securePars}
+{
 
-    http::async_write(socket_, res,
-                      [self](beast::error_code ec, std::size_t) {
-        self->socket_.shutdown(tcp::socket::shutdown_send, ec);
-    });
 }
 
+Server::~Server()
+{
+    stop();
+}
 
+void Server::setGetHandler(const std::string &target, TargetProcessor &&cbk)
+{
+    m_processors[target][MethodType::Get] = cbk;
+    LOG_OK("Registered handler for GET", target);
+}
 
-Server::Server()
-    : acceptor_(ioc_)
-    , pool_(std::thread::hardware_concurrency())
-    , client_(ioc_)
-{}
+void Server::setPostHandler(const std::string &target, TargetProcessor &&cbk)
+{
+    m_processors[target][MethodType::Post] = cbk;
+    LOG_OK("Registered handler for POST", target);
+}
 
-bool Server::start(uint16_t port, const std::string &address) {
+void Server::setPutHandler(const std::string &target, TargetProcessor &&cbk)
+{
+    m_processors[target][MethodType::Put] = cbk;
+    LOG_OK("Registered handler for PUT", target);
+}
+
+void Server::setDeleteHandler(const std::string &target, TargetProcessor &&cbk)
+{
+    m_processors[target][MethodType::Delete] = cbk;
+    LOG_OK("Registered handler for DELETE", target);
+}
+
+void Server::start(uint16_t port, uint16_t threadCount)
+{
+    LOG_INFO("Starting server [", m_serverName, "]", m_httpsParameters.certFile.empty() ? "(HTTP)" : "(HTTPS)");
+    d = std::make_unique<Impl>(m_serverName,
+                               boost::asio::ip::make_address(std::string("0.0.0.0")),
+                               port,
+                               threadCount,
+                               m_httpsParameters);
+
+    d->handleConnections(m_processors);
     try {
-        auto const endpoint = tcp::endpoint(
-                    asio::ip::make_address(address), port
-                    );
-
-        acceptor_.open(endpoint.protocol());
-        acceptor_.set_option(asio::socket_base::reuse_address(true));
-        acceptor_.bind(endpoint);
-        acceptor_.listen();
-
-        server_thread_ = std::thread([this]() {
-            accept_connection();
-            ioc_.run();
-        });
-
-        return true;
-    } catch (const std::exception& e) {
-        if(error_callback_) {
-            error_callback_(ErrorType::BIND_FAILED, e.what());
-        }
-        return false;
+        d->m_ioc.run();
+    } catch (const std::exception& ex) {
+        LOG_ERROR_SYNC("Server exception:", ex.what());
     }
 }
 
-void Server::stop() {
-    ioc_.stop();
-    if(server_thread_.joinable()) {
-        server_thread_.join();
+void Server::stop()
+{
+    LOG_INFO("Requesting server stop...");
+    if (isRunning()) {
+        d->m_acceptor.cancel();
+        d->m_socket.close();
+        d.reset();
     }
 }
 
-void Server::setRequestHandler(RequestHandler handler) {
-    request_handler_ = std::move(handler);
+bool Server::isRunning() const
+{
+    if (!d) {
+        return !d->m_ioc.stopped();
+    }
+    return false;
 }
 
-void Server::setErrorCallback(ErrorCallback callback) {
-    error_callback_ = std::move(callback);
 }
-
-void Server::setResponseHeader(const std::string &key, const std::string &value) {
-    response_packet_.setHeader(key, value);
-}
-
-void Server::setResponseBody(const std::string &body) {
-    response_packet_.body = body;
-}
-
-void Server::setResponseStatus(int status) {
-    response_packet_.setHeader("status", std::to_string(status));
-}
-
-Client &Server::getClient() {
-    return client_;
-}
-
-void Server::accept_connection() {
-    acceptor_.async_accept(
-                [this](beast::error_code ec, tcp::socket socket) {
-        if(!ec) {
-            std::make_shared<Session>(
-                        std::move(socket), pool_, request_handler_
-                        )->start();
-        }
-        accept_connection();
-    });
-}
-
-} // namespace HTTP
