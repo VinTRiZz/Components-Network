@@ -147,7 +147,7 @@ void Server::stop()
 
 bool Server::isRunning() const
 {
-    if (!d) {
+    if (d) {
         return !d->m_ioc.stopped();
     }
     return false;
