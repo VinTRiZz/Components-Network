@@ -1,5 +1,4 @@
-﻿#ifndef WEBSOCKETSESSION_H
-#define WEBSOCKETSESSION_H
+﻿#pragma once
 
 #include <boost/beast/core.hpp>
 #include <boost/beast/websocket.hpp>
@@ -92,5 +91,3 @@ public:
 };
 
 }
-
-#endif // WEBSOCKETSESSION_H
