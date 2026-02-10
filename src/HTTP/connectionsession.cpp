@@ -206,10 +206,7 @@ void ConnectionSession::sendResponse(const Packet &pkt, http::verb method) {
 
 void ConnectionSession::sendErrorResponse(http::status status, const std::string &errorString)
 {
-    m_responseErrorPacket = {};
-    m_responseErrorPacket.bodyType = Packet::Undefined;
-    m_responseErrorPacket.body = errorString;
-    m_responseErrorPacket.statusCode = static_cast<unsigned int>(status);
+    m_responseErrorPacket = createErrorPacket(static_cast<unsigned>(status));
     sendResponse(m_responseErrorPacket, m_request.method());
 }
 

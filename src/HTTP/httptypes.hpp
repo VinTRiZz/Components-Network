@@ -37,6 +37,7 @@ struct Packet
     std::string     body;
     unsigned int    statusCode {0};
 };
+Packet createErrorPacket(unsigned status);
 
 using RequestProcessor = std::function<void(Packet&&)>;
 using TargetProcessor = std::function<void(Packet&&, const RequestProcessor&)>;

@@ -1,5 +1,7 @@
 #include "httptypes.hpp"
 
+#include <boost/beast.hpp>
+
 namespace HTTP
 {
 
@@ -36,6 +38,15 @@ std::string toString(MethodType meth) {
     case Delete: return "DELETE";
     }
     return "";
+}
+
+Packet createErrorPacket(unsigned status)
+{
+    Packet res;
+    res.bodyType = Packet::Undefined;
+    res.body = boost::beast::http::obsolete_reason(boost::beast::http::status(status)).to_string();
+    res.statusCode = static_cast<unsigned int>(status);
+    return res;
 }
 
 }
