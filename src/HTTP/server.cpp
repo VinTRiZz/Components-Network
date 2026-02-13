@@ -38,7 +38,7 @@ struct Server::Impl
         m_acceptor.async_accept(m_socket,
             [&](beast::error_code ec) {
                 if(ec) {
-                    LOG_WARNING("Error accepting connection:", ec.message());
+                    COMPLOG_WARNING("Error accepting connection:", ec.message());
                     handleConnections(processors);
                     return;
                 }
@@ -46,14 +46,14 @@ struct Server::Impl
                 auto handleMethod = [this, pConnection, &processors](Packet&& pkt, MethodType methType) {
                     auto targetProcessor = processors.find(pkt.target);
                     if (targetProcessor == processors.end()) {
-                        LOG_WARNING("No processors set for method:", toString(methType), "and target:", pkt.target);
+                        COMPLOG_WARNING("No processors set for method:", toString(methType), "and target:", pkt.target);
                         pConnection->sendErrorResponse(http::status::not_implemented, "501 - Not implemented");
                         return;
                     }
 
                     auto targetMethodProcessor = targetProcessor->second.find(methType);
                     if (targetMethodProcessor == targetProcessor->second.end()) {
-                        LOG_WARNING("Skipped packet of method:", toString(methType), "and target:", pkt.target);
+                        COMPLOG_WARNING("Skipped packet of method:", toString(methType), "and target:", pkt.target);
                         pConnection->sendErrorResponse(http::status::not_found, "404 - Not found");
                         return;
                     }
@@ -97,30 +97,30 @@ Server::~Server()
 void Server::setGetHandler(const std::string &target, TargetProcessor &&cbk)
 {
     m_processors[target][MethodType::Get] = cbk;
-    LOG_OK("Registered handler for GET", target);
+    COMPLOG_OK("Registered handler for GET", target);
 }
 
 void Server::setPostHandler(const std::string &target, TargetProcessor &&cbk)
 {
     m_processors[target][MethodType::Post] = cbk;
-    LOG_OK("Registered handler for POST", target);
+    COMPLOG_OK("Registered handler for POST", target);
 }
 
 void Server::setPutHandler(const std::string &target, TargetProcessor &&cbk)
 {
     m_processors[target][MethodType::Put] = cbk;
-    LOG_OK("Registered handler for PUT", target);
+    COMPLOG_OK("Registered handler for PUT", target);
 }
 
 void Server::setDeleteHandler(const std::string &target, TargetProcessor &&cbk)
 {
     m_processors[target][MethodType::Delete] = cbk;
-    LOG_OK("Registered handler for DELETE", target);
+    COMPLOG_OK("Registered handler for DELETE", target);
 }
 
 void Server::start(uint16_t port, uint16_t threadCount)
 {
-    LOG_INFO("Starting server [", m_serverName, "]", m_httpsParameters.certFile.empty() ? "(HTTP)" : "(HTTPS)");
+    COMPLOG_INFO("Starting server [", m_serverName, "]", m_httpsParameters.certFile.empty() ? "(HTTP)" : "(HTTPS)");
     d = std::make_unique<Impl>(m_serverName,
                                boost::asio::ip::make_address(std::string("0.0.0.0")),
                                port,
@@ -131,13 +131,13 @@ void Server::start(uint16_t port, uint16_t threadCount)
     try {
         d->m_ioc.run();
     } catch (const std::exception& ex) {
-        LOG_ERROR_SYNC("Server exception:", ex.what());
+        COMPLOG_ERROR_SYNC("Server exception:", ex.what());
     }
 }
 
 void Server::stop()
 {
-    LOG_INFO("Requesting server stop...");
+    COMPLOG_INFO("Requesting server stop...");
     if (isRunning()) {
         d->m_acceptor.cancel();
         d->m_socket.close();

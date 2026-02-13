@@ -13,7 +13,7 @@ void ConnectionSession::checkDeadline() {
             m_responseErrorPacket.statusCode = static_cast<int>(http::status::gateway_timeout);
             sendResponse(m_responseErrorPacket, http::verb::get);
             closeConnection();
-            LOG_WARNING(this, "Closed connection due to timeout");
+            COMPLOG_WARNING(this, "Closed connection due to timeout");
         }
     }
     );
@@ -23,9 +23,9 @@ void ConnectionSession::closeConnection()
 {
     m_deadlineTimer->cancel();
 
-    LOG_INFO(this, "Closing connection");
+    COMPLOG_INFO(this, "Closing connection");
     if (!isConnected()) {
-        LOG_OK(this, "Not connected");
+        COMPLOG_OK(this, "Not connected");
         return;
     }
 
@@ -33,7 +33,7 @@ void ConnectionSession::closeConnection()
     if (std::holds_alternative<beast::tcp_stream>(m_socket)) {
         std::get<beast::tcp_stream>(m_socket).socket().shutdown(tcp::socket::shutdown_both, ec);
         if (ec && ec != boost::asio::error::not_connected) {
-            LOG_ERROR("Error disconnecting:", ec.message());
+            COMPLOG_ERROR("Error disconnecting:", ec.message());
             return;
         }
         std::get<beast::tcp_stream>(m_socket).close();
@@ -46,19 +46,19 @@ void ConnectionSession::closeConnection()
             ec = {};
         }
         if (ec && ec != boost::asio::error::not_connected) {
-            LOG_ERROR("Error in SSL shutdown:", ec.message());
+            COMPLOG_ERROR("Error in SSL shutdown:", ec.message());
             return;
         }
 
 
         std::get<ssl::stream<tcp::socket> >(m_socket).lowest_layer().shutdown(tcp::socket::shutdown_both, ec);
         if (ec && ec != boost::asio::error::not_connected) {
-            LOG_ERROR("Error disconnecting:", ec.message());
+            COMPLOG_ERROR("Error disconnecting:", ec.message());
             return;
         }
         std::get<ssl::stream<tcp::socket> >(m_socket).lowest_layer().close();
     }
-    LOG_OK(this, "Closed connection");
+    COMPLOG_OK(this, "Closed connection");
 }
 
 ConnectionSession::ConnectionSession(const std::string &selfServerName,
@@ -89,7 +89,7 @@ void ConnectionSession::handleRequests() {
         boost::system::error_code ec;
         std::get<net::ssl::stream<tcp::socket>>(m_socket).handshake(net::ssl::stream_base::server, ec);
         if (ec && (ec != net::ssl::error::stream_truncated)) {
-            LOG_ERROR("SSL handshake error, closing connection. Reason:", ec.message());
+            COMPLOG_ERROR("SSL handshake error, closing connection. Reason:", ec.message());
             std::get<net::ssl::stream<tcp::socket>>(m_socket).lowest_layer().shutdown(net::socket_base::shutdown_both);
             return;
         }
@@ -107,7 +107,7 @@ void ConnectionSession::handleRequests() {
         }
 
         if(ec) {
-            LOG_ERROR(this, "Read error:", ec.message());
+            COMPLOG_ERROR(this, "Read error:", ec.message());
             closeConnection();
             return;
         }
@@ -121,7 +121,7 @@ void ConnectionSession::handleRequests() {
             request.bodyType = request.fromString(bodyType);
         }
 
-        LOG_INFO(this, "Request:", m_request.method_string(), request.target, "(", request.toString(request.bodyType), ")");
+        COMPLOG_INFO(this, "Request:", m_request.method_string(), request.target, "(", request.toString(request.bodyType), ")");
 
         MethodType targetMethodType;
         switch  (m_request.method())
@@ -138,7 +138,7 @@ void ConnectionSession::handleRequests() {
         if (auto targetProcessor = m_processors.find(targetMethodType); targetProcessor != m_processors.end()) {
             targetProcessor->second(std::move(request));
         } else {
-            LOG_WARNING(this, "Unknown method:", m_request.method_string());
+            COMPLOG_WARNING(this, "Unknown method:", m_request.method_string());
             sendErrorResponse(http::status::method_not_allowed, "Invalid method");
         }
 
@@ -153,7 +153,7 @@ void ConnectionSession::handleRequests() {
 
 void ConnectionSession::sendResponse(const Packet &pkt, http::verb method) {
 
-    LOG_INFO(this, "Sending response with status", pkt.statusCode);
+    COMPLOG_INFO(this, "Sending response with status", pkt.statusCode);
     if (pkt.isFile) {
         m_response = http::response<http::file_body>();
 
@@ -163,7 +163,7 @@ void ConnectionSession::sendResponse(const Packet &pkt, http::verb method) {
         targetFile.open(pkt.target.c_str(), beast::file_mode::read, ec);
 
         if (ec) {
-            LOG_ERROR("Error opening file:", ec.message());
+            COMPLOG_ERROR("Error opening file:", ec.message());
             sendErrorResponse(http::status::bad_request, "Invalid file to download");
             return;
         }
@@ -195,9 +195,9 @@ void ConnectionSession::sendResponse(const Packet &pkt, http::verb method) {
                 sock, resp,
                 [self = shared_from_this(), this, targetFilePath = pkt.target](beast::error_code ec, std::size_t) {
                 if (ec) {
-                    LOG_ERROR(this, "Error sending response:", ec.message());
+                    COMPLOG_ERROR(this, "Error sending response:", ec.message());
                 } else {
-                    LOG_OK(this, "Response sent");
+                    COMPLOG_OK(this, "Response sent");
                 }
             });
         }, m_response);

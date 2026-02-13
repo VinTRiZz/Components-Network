@@ -37,7 +37,7 @@ struct Server::Impl
         acceptor.async_accept(socket,
             [&](beast::error_code ec) {
                 if (ec) {
-                    LOG_ERROR("Error in connection:", ec.message());
+                    COMPLOG_ERROR("Error in connection:", ec.message());
                 } else {
                     auto pCon = std::shared_ptr<ClientSession>(new ClientSession(std::move(socket)));
                     pCon->m_requestGet = m_requestGet;
@@ -83,7 +83,7 @@ void Server::start(uint16_t port)
     try {
         d->ioc.run();
     } catch (const std::exception& ex) {
-        LOG_ERROR("[start] Exception:", ex.what());
+        COMPLOG_ERROR("[start] Exception:", ex.what());
     }
 }
 

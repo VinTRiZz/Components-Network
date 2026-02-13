@@ -30,7 +30,7 @@ void ClientSession::restartTimeout()
                     pSelf->m_deadline.cancel();
                 }
             );
-            LOG_WARNING("Closing connection due to timeout");
+            COMPLOG_WARNING("Closing connection due to timeout");
         }
     }
     );
@@ -64,7 +64,7 @@ void ClientSession::readRequest() {
 
         if(ec) {
             pSelf->m_deadline.cancel();
-            LOG_INFO("Read error:", ec.value(), "(", ec.message(), ")");
+            COMPLOG_INFO("Read error:", ec.value(), "(", ec.message(), ")");
             return;
         }
         pSelf->processRequest();
@@ -88,12 +88,12 @@ void ClientSession::processRequest()
     auto connectionHash = Encryption::sha256(connectionAddress);
     response.sessionId = connectionHash;
 
-//    LOG_EMPTY("============ REQUEST ==============");
-//    LOG_EMPTY("CON ID:  ", response.sessionId);
-//    LOG_EMPTY("TARGET:  ", response.target);
-//    LOG_EMPTY("TYPE:    ", m_request.method_string());
-//    LOG_EMPTY("BODY:    ", response.body);
-//    LOG_EMPTY("==================================");
+//    COMPLOG_EMPTY("============ REQUEST ==============");
+//    COMPLOG_EMPTY("CON ID:  ", response.sessionId);
+//    COMPLOG_EMPTY("TARGET:  ", response.target);
+//    COMPLOG_EMPTY("TYPE:    ", m_request.method_string());
+//    COMPLOG_EMPTY("BODY:    ", response.body);
+//    COMPLOG_EMPTY("==================================");
 
     switch(m_request.method())
     {
@@ -119,7 +119,7 @@ void ClientSession::processRequest()
             }
         );
 
-        LOG_ERROR("INVALID REQUEST METHOD GOT:", m_request.method_string());
+        COMPLOG_ERROR("INVALID REQUEST METHOD GOT:", m_request.method_string());
         return;
     }
 
@@ -168,18 +168,18 @@ void ClientSession::processRequest()
         break;
     }
 
-//    LOG_EMPTY("=========== RESPONSE =============");
-//    LOG_EMPTY("CON ID:      ", response.sessionId);
-//    LOG_EMPTY("TYPE:        ", m_response.at(http::field::content_type));
-//    LOG_EMPTY("RESULT:      ", m_response.result_int());
+//    COMPLOG_EMPTY("=========== RESPONSE =============");
+//    COMPLOG_EMPTY("CON ID:      ", response.sessionId);
+//    COMPLOG_EMPTY("TYPE:        ", m_response.at(http::field::content_type));
+//    COMPLOG_EMPTY("RESULT:      ", m_response.result_int());
 
 //    auto bodyBuf = beast::buffers_to_string(m_response.body().cdata());
 //    if (bodyBuf.size() < 100) {
-//        LOG_EMPTY("BODY:        ", bodyBuf);
+//        COMPLOG_EMPTY("BODY:        ", bodyBuf);
 //    } else {
-//        LOG_EMPTY("BODY SIZE:   ", bodyBuf.size());
+//        COMPLOG_EMPTY("BODY SIZE:   ", bodyBuf.size());
 //    }
-//    LOG_EMPTY("==================================");
+//    COMPLOG_EMPTY("==================================");
 
     http::async_write(
                 pSelf->m_socket,

@@ -103,9 +103,9 @@ bool TransportPacket::fromString(const std::string &input)
         iarchive >> *this;  // Deserialize the structure
         return true;
     } catch (boost::archive::archive_exception& ex) {
-        LOG_ERROR("Error deserialize packet:", ex.what(), "packet size:", input.size());
+        COMPLOG_ERROR("Error deserialize packet:", ex.what(), "packet size:", input.size());
     } catch (boost::wrapexcept<boost::algorithm::non_hex_input>& ex) {
-        LOG_ERROR("Error deserialize packet payload:", ex.what(), "packet size:", input.size());
+        COMPLOG_ERROR("Error deserialize packet payload:", ex.what(), "packet size:", input.size());
     }
     return false;
 }

@@ -34,10 +34,10 @@ struct TransportServerInstance::Impl
         pAcceptor->async_accept(
         [this](boost::system::error_code ec, tcp::socket socket) {
             if (!ec) {
-                LOG_OK("Connected client");
+                COMPLOG_OK("Connected client");
                 std::make_shared<ConnectionSession>(std::move(socket), m_responseCallback, tokenList)->readSocket(ioContext);
             } else {
-                LOG_ERROR("Client connection error");
+                COMPLOG_ERROR("Client connection error");
             }
             handleConnections();
         });
@@ -82,14 +82,14 @@ int TransportServerInstance::init(const ProcessCallbackT &procCallback)
 
 int TransportServerInstance::start()
 {
-    LOG_INFO("Starting server");
+    COMPLOG_INFO("Starting server");
     for (uint64_t i = 0; i < d->threadCount; i++) {
         d->threadPool.create_thread([this](){
             d->ioContext.run();
         });
     }
     d->threadPool.join_all();
-    LOG_INFO("Server exited normally");
+    COMPLOG_INFO("Server exited normally");
     return 0;
 }
 

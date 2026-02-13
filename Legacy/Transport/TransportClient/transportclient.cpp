@@ -28,9 +28,9 @@ struct TransportClient::Impl
 
     void send(const QByteArray& reqp) {
         if (sock->write(reqp) != reqp.size()) {
-            LOG_ERROR("Error sending data");
+            COMPLOG_ERROR("Error sending data");
         }
-//        LOG_OK("Sent", reqp.size(), "bytes");
+//        COMPLOG_OK("Sent", reqp.size(), "bytes");
 //        sock->waitForReadyRead(1000);
     }
 
@@ -157,7 +157,7 @@ void TransportClient::error(const QString &errorMsg)
 
 void TransportClient::gotResponse()
 {
-//    LOG_DEBUG("GOT RESPONSE");
+//    COMPLOG_DEBUG("GOT RESPONSE");
     auto responseData = d->sock->readAll();
     TransportPacket respp;
     if (!respp.fromString(responseData.toStdString())) {

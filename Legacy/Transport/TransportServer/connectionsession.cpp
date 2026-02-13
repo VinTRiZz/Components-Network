@@ -15,7 +15,7 @@ TransportLevel::ConnectionSession::ConnectionSession(tcp::socket socket, const P
 }
 
 TransportLevel::ConnectionSession::~ConnectionSession() {
-    LOG_INFO("Client disconnected");
+    COMPLOG_INFO("Client disconnected");
 }
 
 
@@ -26,13 +26,13 @@ void TransportLevel::ConnectionSession::readSocket(boost::asio::io_context &proc
         if (ec.value() == 2) {
             return;
         } else if (ec) {
-            LOG_INFO("Unknown exchange error");
+            COMPLOG_INFO("Unknown exchange error");
         }
 
         processingContext.post([this, self, tmpBuffer = data_](){ // Buffer is only to avoid errors caused by threading
             TransportPacket requestPacket;
             if (!requestPacket.fromString(tmpBuffer)) {
-                LOG_ERROR("Error deserialize request packet");
+                COMPLOG_ERROR("Error deserialize request packet");
                 return;
             }
 
@@ -41,7 +41,7 @@ void TransportLevel::ConnectionSession::readSocket(boost::asio::io_context &proc
                 TransportPacket responsePacket = requestPacket;
                 responsePacket.token = "";
                 writeSocket(responsePacket);
-                LOG_ERROR("Invalid token received");
+                COMPLOG_ERROR("Invalid token received");
                 return;
             }
 
@@ -73,7 +73,7 @@ void TransportLevel::ConnectionSession::readSocket(boost::asio::io_context &proc
 void TransportLevel::ConnectionSession::writeSocket(const std::string &dataStr)
 {
     socket_.write_some(boost::asio::buffer(dataStr));
-//    LOG_OK("Sent", dataStr.size(), "bytes");
+//    COMPLOG_OK("Sent", dataStr.size(), "bytes");
 
     // Need this delay to send data correctly
     std::this_thread::yield();
@@ -86,9 +86,9 @@ void TransportLevel::ConnectionSession::writeSocketAsync(const std::string &data
         boost::asio::buffer(dataStr),
         [self = shared_from_this()](boost::system::error_code ec, std::size_t length) {
         if (ec) {
-            LOG_ERROR("Error senging response:", ec.message());
+            COMPLOG_ERROR("Error senging response:", ec.message());
         }
-//        LOG_OK("Sent", length, "bytes");
+//        COMPLOG_OK("Sent", length, "bytes");
     });
 }
 

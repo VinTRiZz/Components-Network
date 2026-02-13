@@ -38,7 +38,7 @@ bool Session::isConnected() const
 }
 
 void Session::on_resolve(beast::error_code ec, boost::asio::ip::tcp::resolver::results_type results) {
-    if(ec) return LOG_ERROR("Resolve:", ec.message());
+    if(ec) return COMPLOG_ERROR("Resolve:", ec.message());
 
     // Set the timeout for the operation
     beast::get_lowest_layer(m_ws).expires_after(std::chrono::seconds(10));
@@ -55,14 +55,14 @@ void Session::on_connect(beast::error_code ec, tcp::resolver::results_type::endp
 {
     if(ec) {
         m_isConnected = false;
-        LOG_ERROR("Connection:", ec.message());
+        COMPLOG_ERROR("Connection:", ec.message());
         if (m_closeCallback) {
             m_closeCallback();
         }
         return;
     }
 
-    LOG_DEBUG("Connected");
+    COMPLOG_DEBUG("Connected");
 
     // Turn off the timeout on the tcp_stream, because
     // the websocket stream has its own timeout system.
@@ -97,9 +97,9 @@ void Session::on_connect(beast::error_code ec, tcp::resolver::results_type::endp
 
 void Session::on_handshake(beast::error_code ec)
 {
-    if(ec) return LOG_ERROR("Handshake:", ec.message());
+    if(ec) return COMPLOG_ERROR("Handshake:", ec.message());
 
-    LOG_DEBUG("HANDSHAKE");
+    COMPLOG_DEBUG("HANDSHAKE");
 
     // Send the message
 //    m_ws.async_write(
@@ -120,17 +120,17 @@ void Session::on_read(beast::error_code ec, std::size_t bytes_transferred)
     boost::ignore_unused(bytes_transferred);
 
     if(ec) {
-        LOG_ERROR("Receive:", ec.message());
+        COMPLOG_ERROR("Receive:", ec.message());
         if (m_closeCallback) {
             m_closeCallback();
         }
         return;
     }
 
-    LOG_DEBUG("Received data:");
-    LOG_DEBUG("=============================");
-    LOG_DEBUG(beast::make_printable(m_buffer.data()));
-    LOG_DEBUG("=============================");
+    COMPLOG_DEBUG("Received data:");
+    COMPLOG_DEBUG("=============================");
+    COMPLOG_DEBUG(beast::make_printable(m_buffer.data()));
+    COMPLOG_DEBUG("=============================");
 
     if (m_readCallback) {
         auto bufferData = m_buffer.cdata();
@@ -145,10 +145,10 @@ void Session::on_read(beast::error_code ec, std::size_t bytes_transferred)
 
 bool Session::send(const std::string &iStr)
 {
-    LOG_DEBUG("Sending data:");
-    LOG_DEBUG("=============================");
-    LOG_DEBUG(iStr);
-    LOG_DEBUG("=============================");
+    COMPLOG_DEBUG("Sending data:");
+    COMPLOG_DEBUG("=============================");
+    COMPLOG_DEBUG(iStr);
+    COMPLOG_DEBUG("=============================");
     return (m_ws.write(boost::asio::buffer(iStr)) != 0);
 }
 
@@ -190,7 +190,7 @@ SecureSession::~SecureSession()
 void SecureSession::start(const std::string &host, const std::string &port)
 {
     m_host = host;
-    LOG_INFO("Connecting to host:", m_host);
+    COMPLOG_INFO("Connecting to host:", m_host);
 
     auto const results = m_resolver.resolve(host, port);
     net::connect(m_ws.next_layer().next_layer(), results);
@@ -198,7 +198,7 @@ void SecureSession::start(const std::string &host, const std::string &port)
 
     m_ws.async_handshake(m_host, "/",
         [this](beast::error_code ec) {
-        if(ec) return LOG_ERROR("Handshake:", ec.message());
+        if(ec) return COMPLOG_ERROR("Handshake:", ec.message());
 
         // Send the message
         //    m_ws.async_write(
@@ -220,17 +220,17 @@ void SecureSession::on_read(beast::error_code ec, std::size_t bytes_transferred)
     boost::ignore_unused(bytes_transferred);
 
     if(ec) {
-        LOG_ERROR("Receive:", ec.message());
+        COMPLOG_ERROR("Receive:", ec.message());
         if (m_closeCallback) {
             m_closeCallback();
         }
         return;
     }
 
-//    LOG_DEBUG("Received data:");
-//    LOG_DEBUG("=============================");
-//    LOG_DEBUG(beast::make_printable(m_buffer.data()));
-//    LOG_DEBUG("=============================");
+//    COMPLOG_DEBUG("Received data:");
+//    COMPLOG_DEBUG("=============================");
+//    COMPLOG_DEBUG(beast::make_printable(m_buffer.data()));
+//    COMPLOG_DEBUG("=============================");
 
     if (m_readCallback) {
         auto bufferData = m_buffer.cdata();
@@ -244,10 +244,10 @@ void SecureSession::on_read(beast::error_code ec, std::size_t bytes_transferred)
 
 bool SecureSession::send(const std::string &iStr)
 {
-//    LOG_DEBUG("Sending data:");
-//    LOG_DEBUG("=============================");
-//    LOG_DEBUG(iStr);
-//    LOG_DEBUG("=============================");
+//    COMPLOG_DEBUG("Sending data:");
+//    COMPLOG_DEBUG("=============================");
+//    COMPLOG_DEBUG(iStr);
+//    COMPLOG_DEBUG("=============================");
     return (m_ws.write(boost::asio::buffer(iStr)) != 0);
 }
 
