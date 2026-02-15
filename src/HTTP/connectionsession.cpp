@@ -113,11 +113,11 @@ void ConnectionSession::handleRequests() {
         }
 
         Packet request;
-        request.target  = m_request.target().to_string();
+        request.target  = to_string(m_request.target());
         request.body    = std::move(beast::buffers_to_string(m_request.body().data()));
 
         if (m_request.count(http::field::content_type)) {
-            auto bodyType = m_request.at(http::field::content_type).to_string();
+            auto bodyType = to_string(m_request.at(http::field::content_type));
             request.bodyType = request.fromString(bodyType);
         }
 

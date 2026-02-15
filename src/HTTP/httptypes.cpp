@@ -44,7 +44,7 @@ Packet createErrorPacket(unsigned status)
 {
     Packet res;
     res.bodyType = Packet::Undefined;
-    res.body = boost::beast::http::obsolete_reason(boost::beast::http::status(status)).to_string();
+    res.body = to_string(boost::beast::http::obsolete_reason(boost::beast::http::status(status)));
     res.statusCode = static_cast<unsigned int>(status);
     return res;
 }

@@ -135,7 +135,7 @@ Packet Client::request(MethodType method, Packet &&pkt)
     }
 
     if (res.count(http::field::content_type)) {
-        pkt.bodyType = pkt.fromString(res.at(http::field::content_type).to_string());
+        pkt.bodyType = pkt.fromString(to_string(res.at(http::field::content_type)));
         if (pkt.bodyType != pkt.acceptableType) {
             COMPLOG_WARNING("Got packet of inacceptable type (", pkt.toString(pkt.bodyType), "!=", pkt.toString(pkt.acceptableType), ")");
         }
@@ -191,7 +191,7 @@ Packet Client::request(MethodType method, const Packet &pkt)
     }
 
     if (res.count(http::field::content_type)) {
-        resp.bodyType = resp.fromString(res.at(http::field::content_type).to_string());
+        resp.bodyType = resp.fromString(to_string(res.at(http::field::content_type)));
         if (resp.bodyType != resp.acceptableType) {
             COMPLOG_WARNING("Got packet of inacceptable type (", resp.toString(resp.bodyType), "!=", resp.toString(resp.acceptableType), ")");
         }
@@ -235,7 +235,7 @@ bool Client::downloadFile(const std::string &target, const std::string &saveFile
     }
 
     if (res.count(http::field::content_type)) {
-        resp.bodyType = resp.fromString(res.at(http::field::content_type).to_string());
+        resp.bodyType = resp.fromString(to_string(res.at(http::field::content_type)));
         if (resp.bodyType != resp.acceptableType) {
             COMPLOG_WARNING("Got packet of inacceptable type (", resp.toString(resp.bodyType), "!=", resp.toString(resp.acceptableType), ")");
         }
