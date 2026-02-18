@@ -214,7 +214,7 @@ std::future<int> Client::ping(size_t bytes, int timeoutMs) {
         });
     }
     std::string payload(bytes, '\0');
-    std::copy_n(&payload[0], &id, sizeof(id));
+    std::copy_n(&payload[0], sizeof(id), &id);
 
     websocketpp::lib::error_code ec;
     d->m_client.ping(d->m_connection, payload, ec);
