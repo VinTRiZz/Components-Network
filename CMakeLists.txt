@@ -1,7 +1,6 @@
 if (COMPONENTS_IS_ENABLED_QT)
     COMPONENTS_CONFIGURE_COMPONENT(Network
         Qt5::Core
-        Qt5::WebSockets
         Qt5::Network
         ssl
     )
