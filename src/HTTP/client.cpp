@@ -9,6 +9,8 @@
 #include <Components/Logger/Logger.h>
 #include <boost/asio/read_until.hpp>
 
+#include <thread>
+
 namespace HTTP
 {
 
