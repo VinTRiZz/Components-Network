@@ -35,6 +35,15 @@ public:
      * @return          true при успешной отправке
      */
     bool sendData(std::string&& data);
+    bool sendData(const std::string& data);
+
+    /**
+     * @brief sendByteData  Отправить байтовые данные на хост
+     * @param data
+     * @return              true при успешной отправке
+     */
+    bool sendByteData(std::vector<uint8_t>&& data);
+    bool sendByteData(const std::vector<uint8_t>& data);
 
     /**
      * @brief setErrorCallback  Задать колбек для обработки ошибок

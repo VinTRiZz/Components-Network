@@ -32,6 +32,35 @@ struct Client::Impl {
             errorCallback(errorType, message);
         }
     }
+
+    template <typename SendT>
+    bool sendData(SendT&& iData) {
+        if (!socket.is_open()) {
+            handleError(ErrorType::SendError,
+                           "Socket is closed");
+            return false;
+        }
+
+        if (host.second == 0) {
+            handleError(ErrorType::SendError,
+                           "Host did not set");
+            return false;
+        }
+
+        try {
+
+            size_t bytesSent = socket.send_to(
+                        boost::asio::buffer(iData.data(), iData.size()),
+                serverEndpoint
+            );
+
+            return bytesSent == iData.size();
+        }
+        catch (const std::exception& e) {
+            handleError(ErrorType::SendError, e.what());
+            return false;
+        }
+    }
 };
 
 Client::Client() :
@@ -85,31 +114,22 @@ bool Client::enableBroadcast(bool enable) {
 }
 
 bool Client::sendData(std::string&& data) {
-    if (!d->socket.is_open()) {
-        d->handleError(ErrorType::SendError,
-                       "Socket is closed");
-        return false;
-    }
+    return d->sendData(data);
+}
 
-    if (d->host.second == 0) {
-        d->handleError(ErrorType::SendError,
-                       "Host did not set");
-        return false;
-    }
+bool Client::sendData(const std::string &data)
+{
+    return d->sendData(data);
+}
 
-    try {
-        
-        size_t bytesSent = d->socket.send_to(
-                    boost::asio::buffer(data.data(), data.size()),
-            d->serverEndpoint
-        );
-        
-        return bytesSent == data.size();
-    }
-    catch (const std::exception& e) {
-        d->handleError(ErrorType::SendError, e.what());
-        return false;
-    }
+bool Client::sendByteData(std::vector<uint8_t> &&data)
+{
+    return d->sendData(data);
+}
+
+bool Client::sendByteData(const std::vector<uint8_t> &data)
+{
+    return d->sendData(data);
 }
 
 void Client::setErrorCallback(ErrorCallback callback) {
