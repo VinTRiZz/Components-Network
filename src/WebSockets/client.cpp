@@ -19,56 +19,59 @@ struct Client::Impl {
     using ConnectionHdl = websocketpp::connection_hdl;
     using MessagePtr = websocketpp::config::asio_client::message_type::ptr;
 
-    Client m_client;
-    std::unique_ptr<std::thread> m_ioThread;
-    websocketpp::lib::asio::io_service m_ioService;
-    ConnectionHdl m_connection;
-    bool m_connected {false};
-    mutable std::mutex m_mutex;
+    Client client;
+    std::unique_ptr<std::thread> ioThread;
+    websocketpp::lib::asio::io_service ioService;
+    ConnectionHdl connection;
+    bool connected {false};
+    mutable std::mutex mutex;
+
+    std::function<void (std::string &&)> stringDataProcessor;
+    std::function<void (std::vector<uint8_t> &&)> byteDataProcessor;
 
     struct PendingPing {
         std::promise<int> promise;
         std::unique_ptr<websocketpp::lib::asio::steady_timer> timer;
     };
-    std::map<uint64_t, PendingPing> m_pendingPings;
-    uint64_t m_nextPingId = 0;
-    std::mutex m_pingMutex;
+    std::map<uint64_t, PendingPing> pendingPings;
+    uint64_t nextPingId = 0;
+    std::mutex pingMutex;
 
     Impl() {
-        m_client.init_asio(&m_ioService);
+        client.init_asio(&ioService);
         setHandlers();
     }
 
     ~Impl() {
         disconnect(DisconnectReason::Normal);
-        if (m_ioThread && m_ioThread->joinable()) {
-            m_ioService.stop();
-            m_ioThread->join();
+        if (ioThread && ioThread->joinable()) {
+            ioService.stop();
+            ioThread->join();
         }
     }
 
     void setHandlers() {
-        m_client.set_open_handler([this](ConnectionHdl hdl) {
+        client.set_open_handler([this](ConnectionHdl hdl) {
             {
-                std::lock_guard<std::mutex> lock(m_mutex);
-                m_connection = hdl;
-                m_connected = true;
+                std::lock_guard<std::mutex> lock(mutex);
+                connection = hdl;
+                connected = true;
             }
             COMPLOG_OK("[WS] Connected to server");
 
             // Отправка двух обязательных сообщений: текст и JSON
             try {
-                m_client.send(hdl, "hello", websocketpp::frame::opcode::text);
+                client.send(hdl, "hello", websocketpp::frame::opcode::text);
                 nlohmann::json j;
                 j["test"] = "hello";
-                m_client.send(hdl, j.dump(), websocketpp::frame::opcode::text);
+                client.send(hdl, j.dump(), websocketpp::frame::opcode::text);
             } catch (const std::exception& e) {
                 COMPLOG_ERROR("[WS] Failed to send initial messages:", e.what());
             }
         });
 
 
-        m_client.set_message_handler([this](ConnectionHdl hdl, MessagePtr msg) {
+        client.set_message_handler([this](ConnectionHdl hdl, MessagePtr msg) {
             if (msg->get_opcode() == websocketpp::frame::opcode::text) {
                 std::string payload = msg->get_payload();
                 COMPLOG_DEBUG("[WS] Text got:", payload);
@@ -83,16 +86,16 @@ struct Client::Impl {
         });
 
 
-        m_client.set_close_handler([this](ConnectionHdl hdl) {
+        client.set_close_handler([this](ConnectionHdl hdl) {
             DisconnectReason reason = DisconnectReason::ServerClosed; // по умолчанию
             websocketpp::close::status::value code;
             std::string reasonStr;
             {
-                std::lock_guard<std::mutex> lock(m_mutex);
-                auto con = m_client.get_con_from_hdl(hdl);
+                std::lock_guard<std::mutex> lock(mutex);
+                auto con = client.get_con_from_hdl(hdl);
                 code = con->get_remote_close_code();
                 reasonStr = con->get_remote_close_reason();
-                m_connected = false;
+                connected = false;
             }
             // Преобразование кода закрытия в enum DisconnectReason (упрощённо)
             if (code == websocketpp::close::status::normal) {
@@ -108,35 +111,35 @@ struct Client::Impl {
         });
 
 
-        m_client.set_fail_handler([this](ConnectionHdl hdl) {
+        client.set_fail_handler([this](ConnectionHdl hdl) {
             {
-                std::lock_guard<std::mutex> lock(m_mutex);
-                m_connected = false;
+                std::lock_guard<std::mutex> lock(mutex);
+                connected = false;
             }
-            auto con = m_client.get_con_from_hdl(hdl);
+            auto con = client.get_con_from_hdl(hdl);
             auto ec = con->get_ec();
             COMPLOG_ERROR("[WS] Connection failed:", ec.message());
         });
 
 
-        m_client.set_pong_handler([this](ConnectionHdl hdl, std::string payload) {
+        client.set_pong_handler([this](ConnectionHdl hdl, std::string payload) {
             if (payload.size() >= sizeof(uint64_t)) {
                 uint64_t id;
                 std::memcpy(&id, payload.data(), sizeof(id));
-                std::lock_guard<std::mutex> lock(m_pingMutex);
-                auto it = m_pendingPings.find(id);
-                if (it != m_pendingPings.end()) {
+                std::lock_guard<std::mutex> lock(pingMutex);
+                auto it = pendingPings.find(id);
+                if (it != pendingPings.end()) {
                     it->second.promise.set_value(1); // здесь можно вычислить RTT, но для примера ставим 1
                     it->second.timer->cancel();
-                    m_pendingPings.erase(it);
+                    pendingPings.erase(it);
                 }
             }
         });
     }
 
     void disconnect(DisconnectReason reason) {
-        std::lock_guard<std::mutex> lock(m_mutex);
-        if (!m_connected) return;
+        std::lock_guard<std::mutex> lock(mutex);
+        if (!connected) return;
 
         websocketpp::close::status::value code = websocketpp::close::status::normal;
         switch (reason) {
@@ -147,11 +150,11 @@ struct Client::Impl {
         }
 
         try {
-            m_client.close(m_connection, code, "Disconnect by user");
+            client.close(connection, code, "Disconnect by user");
         } catch (const std::exception& e) {
             COMPLOG_ERROR("[WS] Error during disconnect:", e.what());
         }
-        m_connected = false;
+        connected = false;
     }
 };
 
@@ -163,23 +166,48 @@ Client::~Client() = default;
 void Client::connect(const std::string& host, uint16_t port) {
     std::string uri = "ws://" + host + ":" + std::to_string(port);
     websocketpp::lib::error_code ec;
-    auto con = d->m_client.get_connection(uri, ec);
+    auto con = d->client.get_connection(uri, ec);
     if (ec) {
         COMPLOG_ERROR("[WS] Connection error:", ec.message());
         return;
     }
-    d->m_client.connect(con);
+    d->client.connect(con);
 
-    if (!d->m_ioThread) {
-        d->m_ioThread = std::make_unique<std::thread>([this]() {
-            d->m_client.run();
+    if (!d->ioThread) {
+        d->ioThread = std::make_unique<std::thread>([this]() {
+            d->client.run();
         });
     }
 }
 
+bool Client::sendText(std::string &&data)
+{
+
+}
+
+bool Client::sendJson(std::string &&data)
+{
+
+}
+
+bool Client::sendBinary(std::vector<uint8_t> &&data)
+{
+
+}
+
+void Client::setReceiveCallback(std::function<void (std::string &&)> &&cbk)
+{
+
+}
+
+void Client::setReceiveByteCallback(std::function<void (std::vector<uint8_t> &&)> &&cbk)
+{
+
+}
+
 bool Client::isConnected() const {
-    std::lock_guard<std::mutex> lock(d->m_mutex);
-    return d->m_connected;
+    std::lock_guard<std::mutex> lock(d->mutex);
+    return d->connected;
 }
 
 std::future<int> Client::ping(size_t bytes, int timeoutMs) {
@@ -197,19 +225,19 @@ std::future<int> Client::ping(size_t bytes, int timeoutMs) {
     std::promise<int> promise;
     auto future = promise.get_future();
     {
-        std::lock_guard<std::mutex> lock(d->m_pingMutex);
-        id = d->m_nextPingId++;
-        auto& pending = d->m_pendingPings[id];
+        std::lock_guard<std::mutex> lock(d->pingMutex);
+        id = d->nextPingId++;
+        auto& pending = d->pendingPings[id];
         pending.promise = std::move(promise);
-        pending.timer = std::make_unique<websocketpp::lib::asio::steady_timer>(d->m_ioService);
+        pending.timer = std::make_unique<websocketpp::lib::asio::steady_timer>(d->ioService);
         pending.timer->expires_after(std::chrono::milliseconds(timeoutMs));
         pending.timer->async_wait([this, id](const websocketpp::lib::asio::error_code& ec) {
             if (ec) return; // таймер был отменён
-            std::lock_guard<std::mutex> lock(d->m_pingMutex);
-            auto it = d->m_pendingPings.find(id);
-            if (it != d->m_pendingPings.end()) {
+            std::lock_guard<std::mutex> lock(d->pingMutex);
+            auto it = d->pendingPings.find(id);
+            if (it != d->pendingPings.end()) {
                 it->second.promise.set_value(-1); // таймаут
-                d->m_pendingPings.erase(it);
+                d->pendingPings.erase(it);
             }
         });
     }
@@ -217,14 +245,14 @@ std::future<int> Client::ping(size_t bytes, int timeoutMs) {
     std::copy_n(&payload[0], sizeof(id), &id);
 
     websocketpp::lib::error_code ec;
-    d->m_client.ping(d->m_connection, payload, ec);
+    d->client.ping(d->connection, payload, ec);
     if (ec) {
         // Ping send error
-        std::lock_guard<std::mutex> lock(d->m_pingMutex);
-        auto it = d->m_pendingPings.find(id);
-        if (it != d->m_pendingPings.end()) {
+        std::lock_guard<std::mutex> lock(d->pingMutex);
+        auto it = d->pendingPings.find(id);
+        if (it != d->pendingPings.end()) {
             it->second.promise.set_value(-1);
-            d->m_pendingPings.erase(it);
+            d->pendingPings.erase(it);
         }
     }
 
