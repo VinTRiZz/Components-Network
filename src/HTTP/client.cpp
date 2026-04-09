@@ -113,7 +113,7 @@ Client::~Client()
 
 void Client::setLoggingEnabled(bool isEn)
 {
-
+    d->isLoggingEnabled = isEn;
 }
 
 void Client::setClientName(const std::string &clientName)
@@ -162,12 +162,18 @@ Packet Client::request(MethodType method, Packet &&pkt)
 
     http::response<http::dynamic_body> res;
 
+    boost::system::error_code ec;
     std::visit([&](auto& sock){
-        http::write(sock, req);
+        http::write(sock, req, ec);
+        if (ec) { return; }
 
         beast::flat_buffer buffer;
-        http::read(sock, buffer, res);
+        http::read(sock, buffer, res, ec);
     }, d->socket);
+    if (ec) {
+        d->logError("Failed to send or receive data:", ec.message());
+        return {};
+    }
 
     pkt.statusCode = res.result_int();
     if (pkt.statusCode != 200) {
@@ -414,7 +420,7 @@ bool Client::connectToHost()
     boost::system::error_code ec;
 
     if (std::holds_alternative<beast::tcp_stream>(d->socket)) {
-        std::get<beast::tcp_stream>(d->socket).connect(results);
+        std::get<beast::tcp_stream>(d->socket).connect(results, ec);
     } else if (std::holds_alternative<net::ssl::stream<tcp::socket> >(d->socket)) {
         if(SSL_set_tlsext_host_name(std::get<net::ssl::stream<tcp::socket> >(d->socket).native_handle(), d->host.c_str())) {
             std::get<net::ssl::stream<tcp::socket> >(d->socket).lowest_layer().connect(results->endpoint(), ec);
@@ -433,10 +439,37 @@ bool Client::connectToHost()
 
 bool Client::isConnected()
 {
+    bool isSocketOpened {false};
     if (std::holds_alternative<beast::tcp_stream>(d->socket)) {
-        return std::get<beast::tcp_stream>(d->socket).socket().lowest_layer().is_open();
+        isSocketOpened = std::get<beast::tcp_stream>(d->socket).socket().lowest_layer().is_open();
+    } else {
+        isSocketOpened = std::get<ssl::stream<tcp::socket> >(d->socket).lowest_layer().is_open();
     }
-    return std::get<ssl::stream<tcp::socket> >(d->socket).lowest_layer().is_open();
+
+    if (!isSocketOpened) {
+        return false;
+    }
+
+    // Why...
+    auto tryRead = [](auto& sock) -> bool {
+        boost::system::error_code ec;
+        char buffer[1];
+        size_t n = sock.receive(boost::asio::buffer(buffer),
+                                           tcp::socket::message_peek, ec);
+
+        // No data, but connected
+        if (ec == boost::asio::error::would_block ||
+            ec == boost::asio::error::try_again)
+            return true;
+
+        // Any other error = disconnected
+        return !ec;
+    };
+
+    if (std::holds_alternative<beast::tcp_stream>(d->socket)) {
+        return tryRead(std::get<beast::tcp_stream>(d->socket).socket());
+    }
+    return tryRead(beast::get_lowest_layer(std::get<ssl::stream<tcp::socket> >(d->socket)));
 }
 
 bool Client::disconnectFromHost()
