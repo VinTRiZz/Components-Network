@@ -31,6 +31,7 @@ struct Client::Impl
 
     std::string host;
     std::string port;
+    bool isLoggingEnabled {false};
 
     std::string clientName {"TestApp"};
     uint32_t maxFileSize {1024 * 1024 * 1024};
@@ -53,6 +54,38 @@ struct Client::Impl
             defaultCtx.stop();
             defaultCtxThread.join();
         }
+    }
+
+    template <typename...Args>
+    void logInfo(Args&&...args) {
+        if (!isLoggingEnabled) {
+            return;
+        }
+        COMPLOG_INFO("[HTTP CLIENT", this, "]", args...);
+    }
+
+    template <typename...Args>
+    void logWarning(Args&&...args) {
+        if (!isLoggingEnabled) {
+            return;
+        }
+        COMPLOG_WARNING("[HTTP CLIENT", this, "]", args...);
+    }
+
+    template <typename...Args>
+    void logError(Args&&...args) {
+        if (!isLoggingEnabled) {
+            return;
+        }
+        COMPLOG_ERROR("[HTTP CLIENT", this, "]", args...);
+    }
+
+    template <typename...Args>
+    void logOk(Args&&...args) {
+        if (!isLoggingEnabled) {
+            return;
+        }
+        COMPLOG_OK("[HTTP CLIENT", this, "]", args...);
     }
 };
 
@@ -78,6 +111,11 @@ Client::~Client()
     disconnectFromHost();
 }
 
+void Client::setLoggingEnabled(bool isEn)
+{
+
+}
+
 void Client::setClientName(const std::string &clientName)
 {
     d->clientName = clientName;
@@ -96,7 +134,7 @@ void Client::setHost(const std::string &host, const uint16_t port)
 
 Packet Client::request(MethodType method, Packet &&pkt)
 {
-    COMPLOG_INFO("Request:", toString(method), pkt.target);
+    d->logInfo("Request:", toString(method), pkt.target);
 
     http::verb requestMethod;
     switch (method)
@@ -106,7 +144,7 @@ Packet Client::request(MethodType method, Packet &&pkt)
     case Post:      requestMethod = http::verb::post; break;
     case Delete:    requestMethod = http::verb::delete_; break;
     default:
-        COMPLOG_ERROR("Unknown method to request:", static_cast<int>(method));
+        d->logError("Unknown method to request:", static_cast<int>(method));
         return {};
     }
 
@@ -133,13 +171,13 @@ Packet Client::request(MethodType method, Packet &&pkt)
 
     pkt.statusCode = res.result_int();
     if (pkt.statusCode != 200) {
-        COMPLOG_ERROR(this, http::obsolete_reason(res.result()));
+        d->logError("Response status:", http::obsolete_reason(res.result()));
     }
 
     if (res.count(http::field::content_type)) {
         pkt.bodyType = pkt.fromString(to_string(res.at(http::field::content_type)));
         if (pkt.bodyType != pkt.acceptableType) {
-            COMPLOG_WARNING("Got packet of inacceptable type (", pkt.toString(pkt.bodyType), "!=", pkt.toString(pkt.acceptableType), ")");
+            d->logWarning("Got packet of inacceptable type (", pkt.toString(pkt.bodyType), "!=", pkt.toString(pkt.acceptableType), ")");
         }
     }
     pkt.body = beast::buffers_to_string(res.body().data());
@@ -148,7 +186,7 @@ Packet Client::request(MethodType method, Packet &&pkt)
 
 Packet Client::request(MethodType method, const Packet &pkt)
 {
-    COMPLOG_INFO("Request:", toString(method), pkt.target);
+    d->logInfo("Request:", toString(method), pkt.target);
 
     http::verb requestMethod;
     switch (method)
@@ -158,7 +196,7 @@ Packet Client::request(MethodType method, const Packet &pkt)
     case Post:      requestMethod = http::verb::post; break;
     case Delete:    requestMethod = http::verb::delete_; break;
     default:
-        COMPLOG_ERROR("Unknown method to request:", static_cast<int>(method));
+        d->logError("Unknown method to request:", static_cast<int>(method));
         return {};
     }
 
@@ -189,13 +227,13 @@ Packet Client::request(MethodType method, const Packet &pkt)
 
     resp.statusCode = res.result_int();
     if (resp.statusCode != 200) {
-        COMPLOG_ERROR(this, http::obsolete_reason(res.result()));
+        d->logWarning("Response status:", http::obsolete_reason(res.result()));
     }
 
     if (res.count(http::field::content_type)) {
         resp.bodyType = resp.fromString(to_string(res.at(http::field::content_type)));
         if (resp.bodyType != resp.acceptableType) {
-            COMPLOG_WARNING("Got packet of inacceptable type (", resp.toString(resp.bodyType), "!=", resp.toString(resp.acceptableType), ")");
+            d->logWarning("Got packet of inacceptable type (", resp.toString(resp.bodyType), "!=", resp.toString(resp.acceptableType), ")");
         }
     }
     resp.body = beast::buffers_to_string(res.body().data());
@@ -203,9 +241,85 @@ Packet Client::request(MethodType method, const Packet &pkt)
     return resp;
 }
 
+void Client::requestAsync(MethodType method, Packet &&pkt, std::function<void (std::optional<Packet> &&)> &&cbk)
+{
+    http::verb requestMethod;
+    switch (method)
+    {
+    case Get:       requestMethod = http::verb::get; break;
+    case Put:       requestMethod = http::verb::put; break;
+    case Post:      requestMethod = http::verb::post; break;
+    case Delete:    requestMethod = http::verb::delete_; break;
+    default:
+        d->logError("Unknown method to request:", static_cast<int>(method));
+        return;
+    }
+
+    http::request<http::dynamic_body> req{requestMethod, pkt.target, 11};
+    req.set(http::field::user_agent, d->clientName);
+    req.set(http::field::host, d->host);
+    req.set(http::field::content_type, pkt.toString(pkt.bodyType));
+    beast::ostream(req.body()) << pkt.body;
+    req.set(http::field::accept, pkt.toString(pkt.acceptableType));
+    req.prepare_payload();
+
+    if (!connectToHost()) {
+        d->logError("Not connected for requesting");
+        return;
+    }
+
+    std::visit([this, cbk = std::move(cbk), req = std::move(req), pkt = std::move(pkt)](auto& sock){
+        http::async_write(sock, req, [this, &sock, cbk = std::move(cbk), pkt = std::move(pkt)](beast::error_code ec, std::size_t) {
+            if (ec) {
+                if (cbk) {
+                    cbk(std::nullopt);
+                }
+                return;
+            }
+
+            auto buffer = std::make_shared<beast::flat_buffer>();
+            auto res = std::make_shared<http::response<http::dynamic_body> >();
+
+            http::async_read(sock, *buffer, *res,
+                             [this, res, buffer, cbk = std::move(cbk), pkt = std::move(pkt)](beast::error_code ec, std::size_t) {
+                                 if (cbk) {
+
+                                     Packet resp;
+                                     resp.target = pkt.target;
+                                     resp.acceptableType = pkt.acceptableType;
+
+                                     resp.statusCode = res->result_int();
+                                     if (resp.statusCode != 200) {
+                                         d->logError(this, http::obsolete_reason(res->result()));
+                                     }
+
+                                     if (res->count(http::field::content_type)) {
+                                         resp.bodyType = resp.fromString(to_string(res->at(http::field::content_type)));
+                                         if (resp.bodyType != resp.acceptableType) {
+                                             d->logWarning("Got packet of inacceptable type (", resp.toString(resp.bodyType), "!=", resp.toString(resp.acceptableType), ")");
+                                         }
+                                     }
+                                     resp.body = beast::buffers_to_string(res->body().data());
+
+                                     cbk(resp);
+                                 }
+                             });
+        });
+    }, d->socket);
+}
+
+void Client::interruptRequestProcessing()
+{
+    if (std::holds_alternative<beast::tcp_stream>(d->socket)) {
+        std::get<beast::tcp_stream>(d->socket).cancel();
+    } else if (std::holds_alternative<ssl::stream<tcp::socket>>(d->socket)) {
+        std::get<ssl::stream<tcp::socket> >(d->socket).lowest_layer().cancel();
+    }
+}
+
 bool Client::downloadFile(const std::string &target, const std::string &saveFilePath)
 {
-    COMPLOG_INFO("Downloading file: URL", target, "--->", saveFilePath);
+    d->logInfo("Downloading file: URL", target, "--->", saveFilePath);
 
     http::request<http::dynamic_body> req{http::verb::get, target, 11};
     req.set(http::field::user_agent, d->clientName);
@@ -233,19 +347,19 @@ bool Client::downloadFile(const std::string &target, const std::string &saveFile
 
     resp.statusCode = res.result_int();
     if (resp.statusCode != 200) {
-        COMPLOG_ERROR(this, http::obsolete_reason(res.result()));
+        d->logError(this, http::obsolete_reason(res.result()));
     }
 
     if (res.count(http::field::content_type)) {
         resp.bodyType = resp.fromString(to_string(res.at(http::field::content_type)));
         if (resp.bodyType != resp.acceptableType) {
-            COMPLOG_WARNING("Got packet of inacceptable type (", resp.toString(resp.bodyType), "!=", resp.toString(resp.acceptableType), ")");
+            d->logWarning("Got packet of inacceptable type (", resp.toString(resp.bodyType), "!=", resp.toString(resp.acceptableType), ")");
         }
     }
 
     std::ofstream saveFile(saveFilePath, std::ios::binary | std::ios::trunc);
     if (!saveFile.is_open()) {
-        COMPLOG_ERROR("Error opening savefile by path: [", saveFilePath, "] reason:", std::strerror(errno));
+        d->logError("Error opening savefile by path: [", saveFilePath, "] reason:", std::strerror(errno));
         return false;
     }
     for (auto const& chunk : res.body().data()) {
@@ -256,7 +370,7 @@ bool Client::downloadFile(const std::string &target, const std::string &saveFile
 
 bool Client::uploadFile(const std::string &target, const std::string &filePath)
 {
-    COMPLOG_INFO("Uploading file:", filePath, "---> URL", target);
+    d->logInfo("Uploading file:", filePath, "---> URL", target);
 
     http::request<http::file_body> req{http::verb::post, target, 11};
     req.set(http::field::user_agent, d->clientName);
@@ -267,7 +381,7 @@ bool Client::uploadFile(const std::string &target, const std::string &filePath)
     http::file_body::value_type targetFile;
     targetFile.open(filePath.c_str(), beast::file_mode::read, ec);
     if (ec) {
-        COMPLOG_ERROR("Error opening file:", ec.message());
+        d->logError("Error opening file:", ec.message());
         return false;
     }
     req.body() = std::move(targetFile);
@@ -294,7 +408,7 @@ bool Client::connectToHost()
         return true;
     }
 
-    COMPLOG_INFO("Connecting to host:", d->host, d->port);
+    d->logInfo("Connecting to host:", d->host, d->port);
     auto const results = d->resolver.resolve(d->host, d->port);
 
     boost::system::error_code ec;
@@ -310,9 +424,9 @@ bool Client::connectToHost()
         }
     }
     if (ec) {
-        COMPLOG_ERROR("Error connecting:", ec.message());
+        d->logError("Error connecting:", ec.message());
     } else {
-        COMPLOG_OK("Connected");
+        d->logOk("Connected to", d->host);
     }
     return (!ec);
 }
@@ -327,9 +441,9 @@ bool Client::isConnected()
 
 bool Client::disconnectFromHost()
 {
-    COMPLOG_INFO("Disconnecting from host");
+    d->logInfo("Disconnecting from host");
     if (!isConnected()) {
-        COMPLOG_OK("Not connected");
+        d->logOk("Not connected");
         return true;
     }
 
@@ -337,7 +451,7 @@ bool Client::disconnectFromHost()
     if (std::holds_alternative<beast::tcp_stream>(d->socket)) {
         std::get<beast::tcp_stream>(d->socket).socket().shutdown(tcp::socket::shutdown_both, ec);
         if (ec && ec != boost::asio::error::not_connected) {
-            COMPLOG_ERROR("Error disconnecting:", ec.message());
+            d->logError("Error disconnecting:", ec.message());
             return false;
         }
         std::get<beast::tcp_stream>(d->socket).close();
@@ -350,19 +464,19 @@ bool Client::disconnectFromHost()
             ec = {};
         }
         if (ec && ec != boost::asio::error::not_connected) {
-            COMPLOG_ERROR("Error in SSL shutdown:", ec.message());
+            d->logError("Error in SSL shutdown:", ec.message());
             return false;
         }
 
 
         std::get<ssl::stream<tcp::socket> >(d->socket).lowest_layer().shutdown(tcp::socket::shutdown_both, ec);
         if (ec && ec != boost::asio::error::not_connected) {
-            COMPLOG_ERROR("Error disconnecting:", ec.message());
+            d->logError("Error disconnecting:", ec.message());
             return false;
         }
         std::get<ssl::stream<tcp::socket> >(d->socket).lowest_layer().close();
     }
-    COMPLOG_OK("Disconnected");
+    d->logOk("Disconnected");
     return true;
 }
 
