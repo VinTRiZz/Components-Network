@@ -29,6 +29,8 @@ struct Client::Impl
     std::variant<beast::tcp_stream, ssl::stream<tcp::socket> > socket;
     std::shared_ptr<ssl::context> ctx;
 
+    net::executor_work_guard<net::io_context::executor_type> defaultCtxWork;
+
     std::string host;
     std::string port;
     bool isLoggingEnabled {false};
@@ -38,19 +40,23 @@ struct Client::Impl
 
     Impl(net::io_context& ioc) :
         resolver{ioc},
-        socket{beast::tcp_stream(ioc)} {
+        socket{beast::tcp_stream(ioc)},
+        defaultCtxWork { net::make_work_guard(defaultCtx) } {
 
     }
 
     Impl() :
+        defaultCtx {1},
         resolver{defaultCtx},
-        socket{beast::tcp_stream(defaultCtx)} {
+        socket{beast::tcp_stream(defaultCtx)},
+        defaultCtxWork { net::make_work_guard(defaultCtx) } {
         defaultCtxThread = std::thread([this](){
             defaultCtx.run();
         });
     }
     ~Impl() {
         if (defaultCtxThread.joinable()) {
+            defaultCtxWork.reset();
             defaultCtx.stop();
             defaultCtxThread.join();
         }
@@ -103,7 +109,12 @@ Client::Client(boost::asio::io_context &ioc, bool isSecure, bool verifyCertifica
 Client::Client(bool isSecure, bool verifyCertificate) :
     d {new Impl()}
 {
+    if (isSecure) {
+        d->ctx = std::make_shared<ssl::context>(ssl::context::tls_client);
+        d->ctx->set_verify_mode(verifyCertificate ? ssl::verify_peer : ssl::verify_none);
 
+        d->socket.emplace<net::ssl::stream<tcp::socket> >(std::move(std::get<beast::tcp_stream>(d->socket).socket()), *d->ctx);
+    }
 }
 
 Client::~Client()
@@ -134,8 +145,6 @@ void Client::setHost(const std::string &host, const uint16_t port)
 
 Packet Client::request(MethodType method, Packet &&pkt)
 {
-    d->logInfo("Request:", toString(method), pkt.target);
-
     http::verb requestMethod;
     switch (method)
     {
@@ -161,8 +170,9 @@ Packet Client::request(MethodType method, Packet &&pkt)
     }
 
     http::response<http::dynamic_body> res;
-
     boost::system::error_code ec;
+
+    d->logInfo("Request:", req.method_string(), req.target());
     std::visit([&](auto& sock){
         http::write(sock, req, ec);
         if (ec) { return; }
@@ -187,13 +197,13 @@ Packet Client::request(MethodType method, Packet &&pkt)
         }
     }
     pkt.body = beast::buffers_to_string(res.body().data());
+
+    d->logOk("Received response (", pkt.body.size(), "bytes)");
     return pkt;
 }
 
 Packet Client::request(MethodType method, const Packet &pkt)
 {
-    d->logInfo("Request:", toString(method), pkt.target);
-
     http::verb requestMethod;
     switch (method)
     {
@@ -220,6 +230,7 @@ Packet Client::request(MethodType method, const Packet &pkt)
 
     http::response<http::dynamic_body> res;
 
+    d->logInfo("Request:", req.method_string(), req.target());
     std::visit([&](auto& sock){
         http::write(sock, req);
 
@@ -244,6 +255,7 @@ Packet Client::request(MethodType method, const Packet &pkt)
     }
     resp.body = beast::buffers_to_string(res.body().data());
 
+    d->logOk("Received response (", resp.body.size(), "bytes)");
     return resp;
 }
 
@@ -261,55 +273,64 @@ void Client::requestAsync(MethodType method, Packet &&pkt, std::function<void (s
         return;
     }
 
-    http::request<http::dynamic_body> req{requestMethod, pkt.target, 11};
-    req.set(http::field::user_agent, d->clientName);
-    req.set(http::field::host, d->host);
-    req.set(http::field::content_type, pkt.toString(pkt.bodyType));
-    beast::ostream(req.body()) << pkt.body;
-    req.set(http::field::accept, pkt.toString(pkt.acceptableType));
-    req.prepare_payload();
+    std::shared_ptr<http::request<http::dynamic_body> > req = std::make_shared< http::request<http::dynamic_body> >(requestMethod, pkt.target, 11);
+    req->set(http::field::user_agent, d->clientName);
+    req->set(http::field::host, d->host);
+    req->set(http::field::content_type, pkt.toString(pkt.bodyType));
+    beast::ostream(req->body()) << pkt.body;
+    req->set(http::field::accept, pkt.toString(pkt.acceptableType));
+    req->prepare_payload();
 
     if (!connectToHost()) {
         d->logError("Not connected for requesting");
         return;
     }
 
-    std::visit([this, cbk = std::move(cbk), req = std::move(req), pkt = std::move(pkt)](auto& sock){
-        http::async_write(sock, req, [this, &sock, cbk = std::move(cbk), pkt = std::move(pkt)](beast::error_code ec, std::size_t) {
+    std::visit([this, cbk = std::move(cbk), req, pkt = std::move(pkt)](auto& sock){
+        d->logInfo("Request:", req->method_string(), req->target());
+        http::async_write(sock, *req, [this, &sock, req, cbk = std::move(cbk), pkt = std::move(pkt)](beast::error_code ec, std::size_t) {
             if (ec) {
+                d->logError("Send failed:", ec.message());
                 if (cbk) {
                     cbk(std::nullopt);
                 }
                 return;
             }
 
+            d->logOk("Async request sent");
             auto buffer = std::make_shared<beast::flat_buffer>();
             auto res = std::make_shared<http::response<http::dynamic_body> >();
+            http::async_read(
+                sock, *buffer, *res,
+                [this, res, buffer, cbk = std::move(cbk), pkt = std::move(pkt)](beast::error_code ec, std::size_t respSize) {
+                    if (ec) {
+                        d->logError("Receive failed:", ec.message());
+                        if (cbk) {
+                            cbk(std::nullopt);
+                        }
+                    }
+                    if (cbk) {
+                        Packet resp;
+                        resp.target = pkt.target;
+                        resp.acceptableType = pkt.acceptableType;
 
-            http::async_read(sock, *buffer, *res,
-                             [this, res, buffer, cbk = std::move(cbk), pkt = std::move(pkt)](beast::error_code ec, std::size_t) {
-                                 if (cbk) {
+                        resp.statusCode = res->result_int();
+                        if (resp.statusCode != 200) {
+                            d->logError(this, http::obsolete_reason(res->result()));
+                        }
 
-                                     Packet resp;
-                                     resp.target = pkt.target;
-                                     resp.acceptableType = pkt.acceptableType;
+                        if (res->count(http::field::content_type)) {
+                            resp.bodyType = resp.fromString(to_string(res->at(http::field::content_type)));
+                            if (resp.bodyType != resp.acceptableType) {
+                                d->logWarning("Got packet of inacceptable type (", resp.toString(resp.bodyType), "!=", resp.toString(resp.acceptableType), ")");
+                            }
+                        }
+                        resp.body = beast::buffers_to_string(res->body().data());
 
-                                     resp.statusCode = res->result_int();
-                                     if (resp.statusCode != 200) {
-                                         d->logError(this, http::obsolete_reason(res->result()));
-                                     }
-
-                                     if (res->count(http::field::content_type)) {
-                                         resp.bodyType = resp.fromString(to_string(res->at(http::field::content_type)));
-                                         if (resp.bodyType != resp.acceptableType) {
-                                             d->logWarning("Got packet of inacceptable type (", resp.toString(resp.bodyType), "!=", resp.toString(resp.acceptableType), ")");
-                                         }
-                                     }
-                                     resp.body = beast::buffers_to_string(res->body().data());
-
-                                     cbk(resp);
-                                 }
-                             });
+                        d->logOk("Received response (", respSize, "bytes)");
+                        cbk(resp);
+                    }
+                });
         });
     }, d->socket);
 }
@@ -455,7 +476,7 @@ bool Client::isConnected()
         boost::system::error_code ec;
         char buffer[1];
         size_t n = sock.receive(boost::asio::buffer(buffer),
-                                           tcp::socket::message_peek, ec);
+                                tcp::socket::message_peek, ec);
 
         // No data, but connected
         if (ec == boost::asio::error::would_block ||
