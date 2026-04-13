@@ -12,3 +12,8 @@ endif()
 
 COMPONENTS_LINK_COMPONENT(Network Logger)
 COMPONENTS_LINK_COMPONENT(Network Encryption)
+
+# Websocketpp
+if (websocketpp_SOURCE_DIR)
+    target_include_directories(Network PRIVATE ${websocketpp_SOURCE_DIR})
+endif()
