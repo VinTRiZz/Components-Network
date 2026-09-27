@@ -75,13 +75,16 @@ struct Client::Impl {
             if (msg->get_opcode() == websocketpp::frame::opcode::text) {
                 std::string payload = msg->get_payload();
                 COMPLOG_DEBUG("[WS] Text got:", payload);
-//                try {
-//                    auto j = nlohmann::json::parse(payload);
-//                } catch (nlohmann::json::exception& ex) {
-
-//                }
+                if (stringDataProcessor) {
+                    stringDataProcessor(std::move(payload));
+                }
             } else {
-                COMPLOG_INFO("[WS] Binary message received, size:", msg->get_payload().size());
+                auto payload = msg->get_payload();
+                COMPLOG_INFO("[WS] Binary message received, size:", payload.size());
+                if (byteDataProcessor) {
+                    std::vector<uint8_t> bytes(payload.begin(), payload.end());
+                    byteDataProcessor(std::move(bytes));
+                }
             }
         });
 
@@ -163,8 +166,8 @@ Client::Client() : d(std::make_unique<Impl>()) {}
 
 Client::~Client() = default;
 
-void Client::connect(const std::string& host, uint16_t port) {
-    std::string uri = "ws://" + host + ":" + std::to_string(port);
+void Client::connect(const std::string& host, uint16_t port, const std::string& resource) {
+    std::string uri = "ws://" + host + ":" + std::to_string(port) + resource;
     websocketpp::lib::error_code ec;
     auto con = d->client.get_connection(uri, ec);
     if (ec) {
@@ -182,27 +185,64 @@ void Client::connect(const std::string& host, uint16_t port) {
 
 bool Client::sendText(std::string &&data)
 {
-
+    std::lock_guard<std::mutex> lock(d->mutex);
+    if (!d->connected) {
+        COMPLOG_ERROR("[WS] Cannot send text: not connected");
+        return false;
+    }
+    websocketpp::lib::error_code ec;
+    d->client.send(d->connection, data, websocketpp::frame::opcode::text, ec);
+    if (ec) {
+        COMPLOG_ERROR("[WS] Failed to send text:", ec.message());
+        return false;
+    }
+    COMPLOG_DEBUG("[WS] Text sent:", data.size(), "bytes");
+    return true;
 }
 
 bool Client::sendJson(std::string &&data)
 {
-
+    std::lock_guard<std::mutex> lock(d->mutex);
+    if (!d->connected) {
+        COMPLOG_ERROR("[WS] Cannot send JSON: not connected");
+        return false;
+    }
+    websocketpp::lib::error_code ec;
+    d->client.send(d->connection, data, websocketpp::frame::opcode::text, ec);
+    if (ec) {
+        COMPLOG_ERROR("[WS] Failed to send JSON:", ec.message());
+        return false;
+    }
+    COMPLOG_DEBUG("[WS] JSON sent:", data.size(), "bytes");
+    return true;
 }
 
 bool Client::sendBinary(std::vector<uint8_t> &&data)
 {
-
+    std::lock_guard<std::mutex> lock(d->mutex);
+    if (!d->connected) {
+        COMPLOG_ERROR("[WS] Cannot send binary: not connected");
+        return false;
+    }
+    std::string payload(data.begin(), data.end());
+    websocketpp::lib::error_code ec;
+    d->client.send(d->connection, payload, websocketpp::frame::opcode::binary, ec);
+    if (ec) {
+        COMPLOG_ERROR("[WS] Failed to send binary:", ec.message());
+        return false;
+    }
+    COMPLOG_DEBUG("[WS] Binary sent:", data.size(), "bytes");
+    return true;
 }
 
 void Client::setReceiveCallback(std::function<void (std::string &&)> &&cbk)
 {
-
+    d->stringDataProcessor = std::move(cbk);
 }
 
 void Client::setReceiveByteCallback(std::function<void (std::vector<uint8_t> &&)> &&cbk)
 {
-
+    d->byteDataProcessor = std::move(cbk);
 }
 
 bool Client::isConnected() const {

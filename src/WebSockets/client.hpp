@@ -22,11 +22,12 @@ public:
     ~Client();
 
     /**
-     * @brief connect   Подключиться к серверу
+     * @brief connect   Connect to server
      * @param host      IP
-     * @param port      Порт сервера
+     * @param port      Port
+     * @param resource  Optional path/resource (e.g. "/?manager=token")
      */
-    void connect(const std::string& host, uint16_t port);
+    void connect(const std::string& host, uint16_t port, const std::string& resource = "");
 
     /**
      * @brief sendText  Отправить текстовые данные
