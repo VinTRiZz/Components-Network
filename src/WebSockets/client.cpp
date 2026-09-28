@@ -68,7 +68,6 @@ struct Client::Impl {
         client.set_message_handler([this](ConnectionHdl hdl, MessagePtr msg) {
             if (msg->get_opcode() == websocketpp::frame::opcode::text) {
                 std::string payload = msg->get_payload();
-                COMPLOG_DEBUG("[WS] Text got:", payload);
                 if (stringDataProcessor) {
                     stringDataProcessor(std::move(payload));
                 }
