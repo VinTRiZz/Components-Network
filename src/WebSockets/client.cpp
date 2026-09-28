@@ -24,6 +24,7 @@ struct Client::Impl {
     websocketpp::lib::asio::io_service ioService;
     ConnectionHdl connection;
     bool connected {false};
+    std::atomic<bool> ioThreadRunning {false};
     mutable std::mutex mutex;
 
     std::function<void (std::string &&)> stringDataProcessor;
@@ -44,8 +45,10 @@ struct Client::Impl {
 
     ~Impl() {
         disconnect(DisconnectReason::Normal);
-        if (ioThread && ioThread->joinable()) {
+        if (ioThread && ioThreadRunning.load()) {
             ioService.stop();
+            ioThread->join();
+        } else if (ioThread && ioThread->joinable()) {
             ioThread->join();
         }
     }
@@ -58,16 +61,6 @@ struct Client::Impl {
                 connected = true;
             }
             COMPLOG_OK("[WS] Connected to server");
-
-            // Отправка двух обязательных сообщений: текст и JSON
-            try {
-                client.send(hdl, "hello", websocketpp::frame::opcode::text);
-                nlohmann::json j;
-                j["test"] = "hello";
-                client.send(hdl, j.dump(), websocketpp::frame::opcode::text);
-            } catch (const std::exception& e) {
-                COMPLOG_ERROR("[WS] Failed to send initial messages:", e.what());
-            }
         });
 
 
@@ -176,9 +169,15 @@ void Client::connect(const std::string& host, uint16_t port, const std::string& 
     }
     d->client.connect(con);
 
-    if (!d->ioThread) {
+    if (!d->ioThreadRunning.load()) {
+        if (d->ioThread && d->ioThread->joinable()) {
+            d->ioThread->join();
+        }
+        d->ioService.reset();
         d->ioThread = std::make_unique<std::thread>([this]() {
+            d->ioThreadRunning.store(true);
             d->client.run();
+            d->ioThreadRunning.store(false);
         });
     }
 }
