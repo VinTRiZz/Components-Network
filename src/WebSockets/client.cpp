@@ -24,7 +24,8 @@ struct Client::Impl {
     websocketpp::lib::asio::io_service ioService;
     ConnectionHdl connection;
     bool connected {false};
-    std::atomic<bool> ioThreadRunning {false};
+    using Work = websocketpp::lib::asio::io_service::work;
+    std::unique_ptr<Work> work;
     mutable std::mutex mutex;
 
     std::function<void (std::string &&)> stringDataProcessor;
@@ -40,15 +41,15 @@ struct Client::Impl {
 
     Impl() {
         client.init_asio(&ioService);
+        work = std::make_unique<Work>(ioService);
         setHandlers();
     }
 
     ~Impl() {
         disconnect(DisconnectReason::Normal);
-        if (ioThread && ioThreadRunning.load()) {
+        work.reset();
+        if (ioThread && ioThread->joinable()) {
             ioService.stop();
-            ioThread->join();
-        } else if (ioThread && ioThread->joinable()) {
             ioThread->join();
         }
     }
@@ -169,15 +170,9 @@ void Client::connect(const std::string& host, uint16_t port, const std::string& 
     }
     d->client.connect(con);
 
-    if (!d->ioThreadRunning.load()) {
-        if (d->ioThread && d->ioThread->joinable()) {
-            d->ioThread->join();
-        }
-        d->ioService.reset();
+    if (!d->ioThread) {
         d->ioThread = std::make_unique<std::thread>([this]() {
-            d->ioThreadRunning.store(true);
             d->client.run();
-            d->ioThreadRunning.store(false);
         });
     }
 }
@@ -195,7 +190,6 @@ bool Client::sendText(std::string &&data)
         COMPLOG_ERROR("[WS] Failed to send text:", ec.message());
         return false;
     }
-    COMPLOG_DEBUG("[WS] Text sent:", data.size(), "bytes");
     return true;
 }
 
@@ -212,7 +206,6 @@ bool Client::sendJson(std::string &&data)
         COMPLOG_ERROR("[WS] Failed to send JSON:", ec.message());
         return false;
     }
-    COMPLOG_DEBUG("[WS] JSON sent:", data.size(), "bytes");
     return true;
 }
 
@@ -230,7 +223,6 @@ bool Client::sendBinary(std::vector<uint8_t> &&data)
         COMPLOG_ERROR("[WS] Failed to send binary:", ec.message());
         return false;
     }
-    COMPLOG_DEBUG("[WS] Binary sent:", data.size(), "bytes");
     return true;
 }
 
