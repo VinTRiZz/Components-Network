@@ -76,12 +76,7 @@ struct Server::Impl {
         m_server.set_message_handler([this](ConnectionHdl hdl, MessagePtr msg) {
             if (msg->get_opcode() == websocketpp::frame::opcode::text) {
                 std::string payload = msg->get_payload();
-                COMPLOG_DEBUG("[WS] Text data got:", payload);
-//                try {
-//                    auto j = nlohmann::json::parse(payload);
-//                } catch (nlohmann::json::exception& parseEx) {
-
-//                }
+                // TODO: Proceed payload
             } else {
                 COMPLOG_INFO("[WS] Binary message received, size:", msg->get_payload().size());
             }
