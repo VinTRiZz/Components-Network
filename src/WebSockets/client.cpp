@@ -13,6 +13,26 @@
 
 namespace WebSockets {
 
+namespace {
+
+// Default state logs only warnings/errors; enabled state switches to info/debug
+template <typename EndpointT>
+void applyLogLevel(EndpointT& endpoint, bool enabled)
+{
+    namespace wslog = websocketpp::log;
+    if (enabled) {
+        endpoint.set_access_channels(wslog::alevel::all);
+        endpoint.set_error_channels(wslog::elevel::all);
+        return;
+    }
+    endpoint.set_access_channels(wslog::alevel::none);
+    endpoint.set_error_channels(wslog::elevel::none);
+    endpoint.set_access_channels(wslog::alevel::fail);
+    endpoint.set_error_channels(wslog::elevel::warn | wslog::elevel::rerror | wslog::elevel::fatal);
+}
+
+} // namespace
+
 // ========================== pImpl implementation ==========================
 struct Client::Impl {
     using Client = websocketpp::client<websocketpp::config::asio_client>;
@@ -41,6 +61,7 @@ struct Client::Impl {
 
     Impl() {
         client.init_asio(&ioService);
+        applyLogLevel(client, false);
         work = std::make_unique<Work>(ioService);
         setHandlers();
     }
@@ -291,6 +312,10 @@ std::future<int> Client::ping(size_t bytes, int timeoutMs) {
 
 void Client::disconnect(DisconnectReason reason) {
     d->disconnect(reason);
+}
+
+void Client::setLoggingEnabled(bool enabled) {
+    applyLogLevel(d->client, enabled);
 }
 
 } // namespace WebSockets

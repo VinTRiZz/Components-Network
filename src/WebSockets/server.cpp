@@ -12,6 +12,26 @@
 
 namespace WebSockets {
 
+namespace {
+
+// Default state logs only warnings/errors; enabled state switches to info/debug
+template <typename EndpointT>
+void applyLogLevel(EndpointT& endpoint, bool enabled)
+{
+    namespace wslog = websocketpp::log;
+    if (enabled) {
+        endpoint.set_access_channels(wslog::alevel::all);
+        endpoint.set_error_channels(wslog::elevel::all);
+        return;
+    }
+    endpoint.set_access_channels(wslog::alevel::none);
+    endpoint.set_error_channels(wslog::elevel::none);
+    endpoint.set_access_channels(wslog::alevel::fail);
+    endpoint.set_error_channels(wslog::elevel::warn | wslog::elevel::rerror | wslog::elevel::fatal);
+}
+
+} // namespace
+
 struct Server::Impl {
     using Server = websocketpp::server<websocketpp::config::asio>;
     using ConnectionHdl = websocketpp::connection_hdl;
@@ -26,6 +46,7 @@ struct Server::Impl {
 
     Impl() {
         m_server.init_asio(&m_ioService);
+        applyLogLevel(m_server, false);
         setHandlers();
     }
 
@@ -171,6 +192,10 @@ void Server::stop() {
 
 bool Server::isListening() const {
     return d->m_listening;
+}
+
+void Server::setLoggingEnabled(bool enabled) {
+    applyLogLevel(d->m_server, enabled);
 }
 
 } // namespace WebSockets

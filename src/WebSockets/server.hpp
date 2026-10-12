@@ -29,6 +29,13 @@ public:
     // Проверка состояния (активно ли прослушивание)
     bool isListening() const;
 
+    /**
+     * @brief setLoggingEnabled  Включить подробный уровень логов websocketpp (INFO/DEBUG).
+     *                           По умолчанию логируются только WARNING/ERROR
+     * @param enabled            true -- INFO/DEBUG, false -- WARNING/ERROR
+     */
+    void setLoggingEnabled(bool enabled = true);
+
 private:
     struct Impl;
     std::unique_ptr<Impl> d;

@@ -83,6 +83,13 @@ public:
      */
     void disconnect(DisconnectReason reason = DisconnectReason::Normal);
 
+    /**
+     * @brief setLoggingEnabled  Включить подробный уровень логов websocketpp (INFO/DEBUG).
+     *                           По умолчанию логируются только WARNING/ERROR
+     * @param enabled            true -- INFO/DEBUG, false -- WARNING/ERROR
+     */
+    void setLoggingEnabled(bool enabled = true);
+
 private:
     struct Impl;
     std::unique_ptr<Impl> d;
