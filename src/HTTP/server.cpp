@@ -131,7 +131,7 @@ void Server::start(uint16_t port, uint16_t threadCount)
     try {
         d->m_ioc.run();
     } catch (const std::exception& ex) {
-        COMPLOG_ERROR_SYNC("Server exception:", ex.what());
+        COMPLOG_SYNC_ERROR("Server exception:", ex.what());
     }
 }
 
