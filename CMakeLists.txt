@@ -4,10 +4,9 @@ COMPONENTS_CONFIGURE_COMPONENT(Network "1.0.0"
 COMPONENTS_LINK_COMPONENT(Components-Network Encryption)
 COMPONENTS_LINK_COMPONENT(Components-Network Logger)
 if (COMPONENTS_IS_ENABLED_QT)
-    target_link_libraries(Components-Network PRIVATE Qt5::Qt5::Network)
+    target_link_libraries(Components-Network PRIVATE Qt5::Network)
 endif()
 if (COMPONENTS_SW_websocketpp)
-    target_link_libraries(Components-Network PRIVATE Qt5::Qt5::Network)
     target_include_directories(Components-Network PRIVATE "${websocketpp_SOURCE_DIR}")
 else()
     COMPONENTS_REMOVE_SOURCES(Components-Network
