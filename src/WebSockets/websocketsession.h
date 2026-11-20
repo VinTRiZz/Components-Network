@@ -37,7 +37,7 @@ class Session : public std::enable_shared_from_this<Session>
 public:
     // Resolver and socket require an io_context
     Session(net::io_context& ioc);
-    ~Session();
+    virtual ~Session();
 
     void start(const std::string& host, const std::string& port = "80");
 

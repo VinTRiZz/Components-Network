@@ -13,7 +13,7 @@ namespace UDP
 class Server {
 public:
     Server();
-    ~Server();
+    virtual ~Server();
 
     bool start(uint16_t port);
     bool isWorking() const;

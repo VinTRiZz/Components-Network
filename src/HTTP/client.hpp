@@ -19,7 +19,7 @@ class Client
 public:
     Client(boost::asio::io_context& ioc, bool isSecure = false, bool verifyCertificate = true);
     Client(bool isSecure = false, bool verifyCertificate = true);
-    ~Client();
+    virtual ~Client();
 
     void setLoggingEnabled(bool isEn);
 

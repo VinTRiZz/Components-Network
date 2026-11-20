@@ -25,7 +25,7 @@ public:
     ConnectionSession(const std::string& selfServerName,
                       tcp::socket &&sock,
                       const std::shared_ptr<net::ssl::context>& ctx);
-    ~ConnectionSession();
+    virtual ~ConnectionSession();
 
     void handleRequests();
     void sendResponse(const Packet& pkt, http::verb method);

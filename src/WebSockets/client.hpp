@@ -19,7 +19,7 @@ enum class DisconnectReason {
 class Client : public boost::noncopyable {
 public:
     Client();
-    ~Client();
+    virtual ~Client();
 
     /**
      * @brief connect   Connect to server

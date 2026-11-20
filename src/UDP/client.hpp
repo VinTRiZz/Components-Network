@@ -12,7 +12,7 @@ namespace UDP
 class Client {
 public:
     Client();
-    ~Client();
+    virtual ~Client();
 
     /**
      * @brief setHost   Задать хост, которому будут отправляться датаграммы

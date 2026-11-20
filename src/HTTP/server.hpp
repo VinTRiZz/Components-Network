@@ -20,7 +20,7 @@ class Server
 {
 public:
     Server(const std::string& serverName, const SecureConnectionParameters &securePars = {});
-    ~Server();
+    virtual ~Server();
 
     void setGetHandler(const std::string& target, TargetProcessor&& cbk);
     void setPostHandler(const std::string& target, TargetProcessor&& cbk);

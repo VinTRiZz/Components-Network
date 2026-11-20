@@ -18,7 +18,7 @@ enum class DisconnectReason {
 class Server : public boost::noncopyable {
 public:
     Server();
-    ~Server();
+    virtual ~Server();
 
     // Запуск сервера на указанном хосте и порту
     void listen(const std::string& host, uint16_t port);
